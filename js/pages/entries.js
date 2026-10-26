@@ -14,10 +14,53 @@ export async function renderEntriesPage(router, params = {}) {
   let activeFilter = params.filter ? params.filter.toLowerCase() : 'all';
   if (activeFilter === 'other') activeFilter = 'not_fitted';
   let selectedShopId = params.shopId || 'all';
+  let selectedTimeFilter = params.time || 'all';
   let searchQuery = '';
   let allEntries = [];
   let shops = [];
   let isFetching = false;
+
+  // Helper: check if entry belongs to the selected shop
+  function entryBelongsToShop(entry, targetShopId) {
+    if (!targetShopId || targetShopId === 'all') return true;
+    const targetIdStr = targetShopId.toString().trim();
+    const entryShopIdStr = (entry.shopId || '').toString().trim();
+    if (entryShopIdStr && entryShopIdStr === targetIdStr) return true;
+
+    const targetShop = shops.find(s => (s.id || '').toString().trim() === targetIdStr);
+    if (targetShop && targetShop.name && entry.shopName) {
+      if (entry.shopName.trim().toLowerCase() === targetShop.name.trim().toLowerCase()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Helper: check if entry matches the selected time range
+  function matchesTimeFilter(entry, timeFilter) {
+    if (!timeFilter || timeFilter === 'all') return true;
+    const rawDate = entry.followUpDate || entry.follow_up_date || entry.createdAt || entry.created_at || entry.date;
+    if (!rawDate) return true;
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return true;
+
+    const now = new Date();
+    if (timeFilter === 'today') {
+      return d.getFullYear() === now.getFullYear() &&
+             d.getMonth() === now.getMonth() &&
+             d.getDate() === now.getDate();
+    }
+    if (timeFilter === 'week') {
+      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const oneWeekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      return d >= oneWeekAgo && d <= oneWeekAhead;
+    }
+    if (timeFilter === 'month') {
+      return d.getFullYear() === now.getFullYear() &&
+             d.getMonth() === now.getMonth();
+    }
+    return true;
+  }
 
   // Initials generator
   function getInitials(name) {
@@ -88,13 +131,17 @@ export async function renderEntriesPage(router, params = {}) {
     }
   }
 
-  function getFilteredEntries() {
-    return allEntries.filter(e => {
-      // Shop filter
-      if (selectedShopId !== 'all' && e.shopId !== selectedShopId) {
-        return false;
-      }
+  function getShopBaseEntries() {
+    const nonDeleted = allEntries.filter(e => !e.isDeleted);
+    return nonDeleted.filter(e => {
+      if (!entryBelongsToShop(e, selectedShopId)) return false;
+      if (selectedTimeFilter !== 'all' && !matchesTimeFilter(e, selectedTimeFilter)) return false;
+      return true;
+    });
+  }
 
+  function getFilteredEntries(shopBaseEntries) {
+    return shopBaseEntries.filter(e => {
       // Status pill filter
       if (activeFilter === 'pending') {
         if (e.status !== 'PENDING' || e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.isNoResponse || e.isOverdue) return false;
@@ -221,14 +268,36 @@ export async function renderEntriesPage(router, params = {}) {
   }
 
   function renderUI() {
-    const filtered = getFilteredEntries();
+    const activeEl = document.activeElement;
+    const isSearchFocused = activeEl && activeEl.id === 'entries-search-input';
+    const selectionStart = isSearchFocused ? activeEl.selectionStart : null;
+    const selectionEnd = isSearchFocused ? activeEl.selectionEnd : null;
 
-    // Reconcile status counts across all entries
-    const countCompleted = allEntries.filter(e => e.status === 'COMPLETED' && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT').length;
-    const countPending = allEntries.filter(e => e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
-    const countOverdue = allEntries.filter(e => e.isOverdue).length;
-    const countNotFitted = allEntries.filter(e => e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.status === 'LOST').length;
-    const countNoResponse = allEntries.filter(e => e.status === 'NO_RESPONSE' || e.isNoResponse || e.is_no_response).length;
+    // 1. Base entries for the selected shop (and time filter)
+    const shopBaseEntries = getShopBaseEntries();
+
+    // 2. Status counts specifically for this shop
+    const countAll = shopBaseEntries.length;
+    const countCompleted = shopBaseEntries.filter(e => e.status === 'COMPLETED' && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT').length;
+    const countPending = shopBaseEntries.filter(e => e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
+    const countOverdue = shopBaseEntries.filter(e => e.isOverdue).length;
+    const countNotFitted = shopBaseEntries.filter(e => e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.status === 'LOST').length;
+    const countNoResponse = shopBaseEntries.filter(e => e.status === 'NO_RESPONSE' || e.isNoResponse || e.is_no_response).length;
+
+    // 3. Filter down based on active status filter pill and search query
+    const filtered = getFilteredEntries(shopBaseEntries);
+
+    // 4. Header title & subtitle
+    const selectedShop = shops.find(s => (s.id || '').toString().trim() === selectedShopId.toString().trim());
+    const isAllShops = selectedShopId === 'all';
+    const shopLabel = isAllShops ? `${shops.length} shops` : (selectedShop?.name || 'Shop');
+
+    let subtitleText = '';
+    if (filtered.length === countAll) {
+      subtitleText = `${countAll} records · ${shopLabel}`;
+    } else {
+      subtitleText = `${filtered.length} of ${countAll} records · ${shopLabel}`;
+    }
 
     container.innerHTML = `
       <header class="app-header mobile-only-header">
@@ -236,7 +305,7 @@ export async function renderEntriesPage(router, params = {}) {
           <div class="app-header-info">
             <h1 class="app-header-title">All Entries</h1>
             <div class="app-header-subtitle">
-              ${filtered.length} of ${allEntries.length} records · ${shops.length} shops
+              ${subtitleText}
             </div>
           </div>
           <div class="header-actions">
@@ -272,21 +341,21 @@ export async function renderEntriesPage(router, params = {}) {
         <div style="display:flex; gap:10px; margin-bottom:var(--space-3);">
           <select id="entries-shop-select" class="form-input" style="flex:1; height:38px; font-size:13px; border-radius:10px; background:var(--bg-surface);">
             <option value="all" ${selectedShopId === 'all' ? 'selected' : ''}>🏪 All Shops (${shops.length})</option>
-            ${shops.map(s => `<option value="${s.id}" ${selectedShopId === s.id ? 'selected' : ''}>${UI.escape(s.name)}</option>`).join('')}
+            ${shops.map(s => `<option value="${s.id}" ${(s.id || '').toString().trim() === selectedShopId.toString().trim() ? 'selected' : ''}>${UI.escape(s.name)}</option>`).join('')}
           </select>
 
           <select id="entries-time-select" class="form-input" style="flex:1; height:38px; font-size:13px; border-radius:10px; background:var(--bg-surface);">
-            <option value="all">📅 All Time</option>
-            <option value="today">Today</option>
-            <option value="week">This Week</option>
-            <option value="month" selected>This Month</option>
+            <option value="all" ${selectedTimeFilter === 'all' ? 'selected' : ''}>📅 All Time</option>
+            <option value="today" ${selectedTimeFilter === 'today' ? 'selected' : ''}>Today</option>
+            <option value="week" ${selectedTimeFilter === 'week' ? 'selected' : ''}>This Week</option>
+            <option value="month" ${selectedTimeFilter === 'month' ? 'selected' : ''}>This Month</option>
           </select>
         </div>
 
-        <!-- Filter Pills Bar (All, Pending, Overdue, Completed, Not Fitted, No Response) -->
+        <!-- Filter Pills Bar (All, Completed, Not Fitted, No Response, Pending, Overdue) -->
         <div class="filter-pills-row">
           <button class="filter-pill ${activeFilter === 'all' ? 'active' : ''}" data-filter="all">
-            All (${allEntries.length})
+            All (${countAll})
           </button>
           <button class="filter-pill ${activeFilter === 'completed' ? 'active' : ''}" data-filter="completed">
             Completed (${countCompleted})
@@ -427,6 +496,13 @@ export async function renderEntriesPage(router, params = {}) {
       renderUI();
     });
 
+    // Attach time filter listener
+    const timeSelect = container.querySelector('#entries-time-select');
+    timeSelect?.addEventListener('change', (e) => {
+      selectedTimeFilter = e.target.value;
+      renderUI();
+    });
+
     // Attach filter pill buttons
     container.querySelectorAll('.filter-pill').forEach(pill => {
       pill.addEventListener('click', () => {
@@ -434,6 +510,17 @@ export async function renderEntriesPage(router, params = {}) {
         renderUI();
       });
     });
+
+    // Restore focus if search was active
+    if (isSearchFocused) {
+      const newSearchInput = container.querySelector('#entries-search-input');
+      if (newSearchInput) {
+        newSearchInput.focus();
+        try {
+          newSearchInput.setSelectionRange(selectionStart, selectionEnd);
+        } catch (_) {}
+      }
+    }
   }
 
   // Load live data

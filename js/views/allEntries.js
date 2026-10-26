@@ -137,9 +137,44 @@ export async function renderAllEntries(router, params) {
     const selectedShop = shopFilter.value;
     const query = searchInput.value.trim().toLowerCase();
 
-    const filtered = allEntries.filter(e => {
-      if (selectedShop && e.shopId !== selectedShop) return false;
+    // Reconcile stats for selected shop
+    const shopBase = allEntries.filter(e => {
+      if (e.isDeleted) return false;
+      if (!selectedShop) return true;
+      const targetIdStr = selectedShop.toString().trim();
+      const entryShopIdStr = (e.shopId || '').toString().trim();
+      if (entryShopIdStr && entryShopIdStr === targetIdStr) return true;
+      const targetShop = shops.find(s => (s.id || '').toString().trim() === targetIdStr);
+      if (targetShop && targetShop.name && e.shopName) {
+        return e.shopName.trim().toLowerCase() === targetShop.name.trim().toLowerCase();
+      }
+      return false;
+    });
 
+    const sTotal = shopBase.length;
+    const sCompleted = shopBase.filter(e => e.status === 'COMPLETED' && e.fitStatus !== 'NOT_FIT').length;
+    const sPending = shopBase.filter(e => e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
+
+    // Update pill labels
+    const pillAllSpan = container.querySelector('.entry-pill[data-status="all"] span');
+    if (pillAllSpan) pillAllSpan.textContent = sTotal;
+    const pillCompletedSpan = container.querySelector('.entry-pill[data-status="completed"] span:last-child');
+    if (pillCompletedSpan) pillCompletedSpan.textContent = sCompleted;
+    const pillPendingSpan = container.querySelector('.entry-pill[data-status="pending"] span:last-child');
+    if (pillPendingSpan) pillPendingSpan.textContent = sPending;
+
+    // Update header subtitle
+    const headerSub = container.querySelector('.header-subtitle');
+    if (headerSub) {
+      if (!selectedShop) {
+        headerSub.textContent = `${sTotal} records · ${activeShopCount} shops`;
+      } else {
+        const sObj = shops.find(s => (s.id || '').toString().trim() === selectedShop.toString().trim());
+        headerSub.textContent = `${sTotal} records · ${sObj?.name || 'Shop'}`;
+      }
+    }
+
+    const filtered = shopBase.filter(e => {
       const isPending = e.status === 'PENDING' && e.fitStatus === 'FIT' && !e.isOverdue;
       const isCompleted = e.status === 'COMPLETED' && e.fitStatus === 'FIT';
       const isOverdue = e.isOverdue;

@@ -56,7 +56,11 @@ class StoreClass {
 
   normalizeShop(s) {
     if (!s) return null;
-    const id = (s.id || s._id || '').toString();
+    let id = s.id || s._id || '';
+    if (typeof id === 'object' && id !== null) {
+      id = id._id || id.id || '';
+    }
+    id = (id || '').toString();
     const name = s.name || s.shopName || s.shop_name || 'Workshop Branch';
     const address = s.address || s.location || s.shopAddress || '';
     const phone = s.phone || s.contactNumber || s.phone_number || '';
@@ -80,7 +84,11 @@ class StoreClass {
 
   normalizeEntry(e) {
     if (!e) return null;
-    const id = (e.id || e._id || '').toString();
+    let id = e.id || e._id || '';
+    if (typeof id === 'object' && id !== null) {
+      id = id._id || id.id || '';
+    }
+    id = (id || '').toString();
     const customerName = e.customerName || e.customer_name || e.name || 'Customer';
     const mobileNumber = e.mobileNumber || e.mobile_number || e.customer_phone || e.phone || '';
     const vehicleNumber = e.vehicleNumber || e.vehicle_number || e.vehicle_reg || '';
@@ -89,8 +97,23 @@ class StoreClass {
     const tyreBrand = e.tyreBrand || e.tyre_brand || '';
     const amount = Number(e.amount || e.totalAmount || 0);
     const quantity = Number(e.quantity || 0);
-    const shopId = (e.shopId || e.shop_id || '').toString();
-    const shopName = e.shopName || e.shop_name || 'Shop';
+
+    let rawShopId = '';
+    if (e.shopId) {
+      rawShopId = typeof e.shopId === 'object' ? (e.shopId._id || e.shopId.id || '') : e.shopId;
+    } else if (e.shop_id) {
+      rawShopId = typeof e.shop_id === 'object' ? (e.shop_id._id || e.shop_id.id || '') : e.shop_id;
+    } else if (e.shop) {
+      rawShopId = typeof e.shop === 'object' ? (e.shop._id || e.shop.id || '') : e.shop;
+    }
+    const shopId = (rawShopId || '').toString();
+
+    let rawShopName = '';
+    if (e.shopName) rawShopName = e.shopName;
+    else if (e.shop_name) rawShopName = e.shop_name;
+    else if (e.shop && typeof e.shop === 'object') rawShopName = e.shop.name || e.shop.shopName || '';
+    else if (e.shopId && typeof e.shopId === 'object') rawShopName = e.shopId.name || e.shopId.shopName || '';
+    const shopName = (rawShopName || 'Shop').toString();
     const status = (e.status || 'PENDING').toUpperCase();
     const fitStatus = (e.fitStatus || e.fit_status || 'FIT').toUpperCase();
     const followUpDate = e.followUpDate || e.follow_up_date || new Date().toISOString();
