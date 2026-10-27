@@ -397,11 +397,11 @@ export function renderDashboardPage(router) {
     });
 
     // Master cards navigation
-    contentWrapper.querySelector('#dash-tyre-master-card')?.addEventListener('click', () => router.navigate('#/manage'));
-    contentWrapper.querySelector('#dash-car-master-card')?.addEventListener('click', () => router.navigate('#/manage'));
+    contentWrapper.querySelector('#dash-tyre-master-card')?.addEventListener('click', () => router.navigate('#/tyre-master'));
+    contentWrapper.querySelector('#dash-car-master-card')?.addEventListener('click', () => router.navigate('#/car-master'));
 
     // Targets card navigation
-    contentWrapper.querySelector('#dash-targets-card')?.addEventListener('click', () => router.navigate('#/report'));
+    contentWrapper.querySelector('#dash-targets-card')?.addEventListener('click', () => router.navigate('#/targets'));
 
     // Manage link
     contentWrapper.querySelector('#dash-manage-link')?.addEventListener('click', () => router.navigate('#/manage'));

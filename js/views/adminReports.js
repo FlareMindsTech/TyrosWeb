@@ -54,13 +54,13 @@ async function renderAllShopsReportOverview(container, router, shops) {
 
     const hasTodayReport = sReports.some(r => (r.reportDate || r.report_date || '').slice(0, 10) === todayStr);
 
-    const target = monthTargets.find(t => t.shopId === shop.id);
-    const revenueTarget = target?.amountTarget || (shop.name === 'Flareminds' ? 60000000 : (shop.name === 'Tyre Point' ? 25400 : 500000));
-    const tyreTarget = target?.tyreTarget || (shop.name === 'Flareminds' ? 280 : (shop.name === 'Tyre Point' ? 120 : 100));
-    const achievedRevenue = target?.achievedAmount || 0;
-    const achievedTyres = target?.achievedTyres || 0;
-    const tyrePercentage = target?.tyresPercentage || (tyreTarget > 0 ? Math.round((achievedTyres / tyreTarget) * 100) : 0);
-    const revenuePercentage = target?.amountPercentage || (revenueTarget > 0 ? Math.round((achievedRevenue / revenueTarget) * 100) : 0);
+    const target = monthTargets.find(t => (t.shopId || '').toString() === (shop.id || '').toString());
+    const revenueTarget = target?.amountTarget ?? target?.targetAmount ?? 0;
+    const tyreTarget = target?.tyreTarget ?? target?.targetTyres ?? 0;
+    const achievedRevenue = target?.achievedAmount ?? target?.revenueAchieved ?? 0;
+    const achievedTyres = target?.achievedTyres ?? target?.tyreAchieved ?? 0;
+    const tyrePercentage = target?.tyresPercentage ?? (tyreTarget > 0 ? Math.round((achievedTyres / tyreTarget) * 100) : 0);
+    const revenuePercentage = target?.amountPercentage ?? (revenueTarget > 0 ? Math.round((achievedRevenue / revenueTarget) * 100) : 0);
 
     return {
       ...shop,

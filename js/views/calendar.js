@@ -81,13 +81,22 @@ export async function renderCalendar(router) {
       gridEl.appendChild(blank);
     }
 
+    // Helper for timezone-safe YYYY-MM-DD
+    function toLocalYMD(d) {
+      if (!d) return '';
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const date = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${date}`;
+    }
+
     // Days
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const selStr = selectedDate.toISOString().slice(0, 10);
+    const todayStr = toLocalYMD(new Date());
+    const selStr = toLocalYMD(selectedDate);
 
     for (let day = 1; day <= daysInMonth; day++) {
       const thisDate = new Date(y, m, day);
-      const thisDateStr = thisDate.toISOString().slice(0, 10);
+      const thisDateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const count = entryCountMap[thisDateStr] || 0;
       const isSelected = thisDateStr === selStr;
       const isToday = thisDateStr === todayStr;
@@ -125,7 +134,10 @@ export async function renderCalendar(router) {
   }
 
   function renderDayEntries() {
-    const selStr = selectedDate.toISOString().slice(0, 10);
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const date = String(selectedDate.getDate()).padStart(2, '0');
+    const selStr = `${year}-${month}-${date}`;
     dayTitleEl.textContent = `Queue for ${UI.formatDate(selectedDate, 'short')}`;
 
     const matching = allEntries.filter(e => e.followUpDate && e.followUpDate.slice(0, 10) === selStr);

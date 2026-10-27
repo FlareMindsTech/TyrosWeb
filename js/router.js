@@ -7,13 +7,16 @@ export class HashRouter {
     this.currentRoute = null;
     this.container = null;
     this.routes = {
-      '#/login': () => import('./pages/login.js?v=2.0.9').then(m => m.renderLoginPage),
-      '#/dashboard': () => import('./pages/dashboard.js?v=2.0.9').then(m => m.renderDashboardPage),
-      '#/entries': () => import('./pages/entries.js?v=2.0.9').then(m => m.renderEntriesPage),
-      '#/report': () => import('./pages/report.js?v=2.0.9').then(m => m.renderReportPage),
-      '#/reports': () => import('./pages/report.js?v=2.0.9').then(m => m.renderReportPage),
-      '#/manage': () => import('./pages/manage.js?v=2.0.9').then(m => m.renderManagePage),
-      '#/profile': () => import('./pages/profile.js?v=2.0.9').then(m => m.renderProfilePage),
+      '#/login': () => import('./pages/login.js?v=2.1.0').then(m => m.renderLoginPage),
+      '#/dashboard': () => import('./pages/dashboard.js?v=2.1.0').then(m => m.renderDashboardPage),
+      '#/entries': () => import('./pages/entries.js?v=2.1.0').then(m => m.renderEntriesPage),
+      '#/report': () => import('./pages/report.js?v=2.1.0').then(m => m.renderReportPage),
+      '#/manage': () => import('./pages/manage.js?v=2.1.0').then(m => m.renderManagePage),
+      '#/profile': () => import('./pages/profile.js?v=2.1.0').then(m => m.renderProfilePage),
+      '#/targets': () => import('./views/targets.js?v=2.1.0').then(m => m.renderTargets),
+      '#/tyre-master': () => import('./views/tyreMaster.js?v=2.1.0').then(m => m.renderTyreMaster),
+      '#/car-master': () => import('./views/carMaster.js?v=2.1.0').then(m => m.renderCarMaster),
+      '#/calendar': () => import('./views/calendar.js?v=2.1.0').then(m => m.renderCalendar),
     };
   }
 

@@ -39,13 +39,14 @@ export async function renderReportPage(router, params = {}) {
     const nonDeletedEntries = allEntries.filter(e => !e.isDeleted);
     const totalEnquiriesCount = nonDeletedEntries.length;
 
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const now = new Date();
     let currentYear = now.getFullYear();
     let currentMonth = now.getMonth() + 1; // 1-12
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
-    const targetHistory = await Store.getTargetHistory(null, currentYear).catch(() => []);
-    const monthTargets = targetHistory.filter(t => t.targetMonth === currentMonth);
+    let targetHistory = await Store.getTargetHistory(null, currentYear).catch(() => []);
+    let monthTargets = targetHistory.filter(t => Number(t.targetMonth) === currentMonth);
 
     // If shopId parameter exists in URL or was selected, render Single Shop 360 View
     let activeShopId = params.shopId || null;
@@ -67,25 +68,30 @@ export async function renderReportPage(router, params = {}) {
       const activeShops = shops.filter(s => s.isActive !== false);
 
       const shopCardData = shops.map(shop => {
-        const sEntries = nonDeletedEntries.filter(e => e.shopId === shop.id);
+        const sEntries = nonDeletedEntries.filter(e => (e.shopId || '').toString() === (shop.id || '').toString());
         const wonCount = sEntries.filter(e => e.status === 'COMPLETED' && e.fitStatus !== 'NOT_FIT').length;
         const pendingCount = sEntries.filter(e => e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
 
-        const sReports = dailyReports.filter(r => (r.shopId || r.shop_id) === shop.id);
+        const sReports = dailyReports.filter(r => (r.shopId || r.shop_id || '').toString() === (shop.id || '').toString());
         const mReports = sReports.filter(r => {
-          const d = new Date(r.reportDate || r.report_date);
-          return d.getFullYear() === currentYear && (d.getMonth() + 1) === currentMonth;
+          const rDateStr = (r.reportDate || r.report_date || '');
+          if (!rDateStr) return false;
+          const parts = rDateStr.slice(0, 10).split('-');
+          if (parts.length < 3) return false;
+          const rYear = parseInt(parts[0], 10);
+          const rMonth = parseInt(parts[1], 10);
+          return rYear === currentYear && rMonth === currentMonth;
         });
 
         const hasTodayReport = sReports.some(r => (r.reportDate || r.report_date || '').slice(0, 10) === todayStr);
 
-        const target = monthTargets.find(t => t.shopId === shop.id);
-        const revenueTarget = target?.amountTarget || (shop.name === 'Flareminds' ? 60000000 : (shop.name === 'Tyre Point' ? 25400 : 500000));
-        const tyreTarget = target?.tyreTarget || (shop.name === 'Flareminds' ? 280 : (shop.name === 'Tyre Point' ? 120 : 100));
-        const achievedRevenue = target?.achievedAmount || (shop.name === 'Flareminds' ? 9343001 : 0);
-        const achievedTyres = target?.achievedTyres || (shop.name === 'Flareminds' ? 146 : 0);
-        const tyrePercentage = target?.tyresPercentage || (tyreTarget > 0 ? Math.round((achievedTyres / tyreTarget) * 100) : 0);
-        const revenuePercentage = target?.amountPercentage || (revenueTarget > 0 ? Math.round((achievedRevenue / revenueTarget) * 100) : 0);
+        const target = monthTargets.find(t => (t.shopId || '').toString() === (shop.id || '').toString());
+        const revenueTarget = target?.amountTarget ?? target?.targetAmount ?? 0;
+        const tyreTarget = target?.tyreTarget ?? target?.targetTyres ?? 0;
+        const achievedRevenue = target?.achievedAmount ?? target?.revenueAchieved ?? 0;
+        const achievedTyres = target?.achievedTyres ?? target?.tyreAchieved ?? 0;
+        const tyrePercentage = target?.tyresPercentage ?? (tyreTarget > 0 ? Math.round((achievedTyres / tyreTarget) * 100) : 0);
+        const revenuePercentage = target?.amountPercentage ?? (revenueTarget > 0 ? Math.round((achievedRevenue / revenueTarget) * 100) : 0);
 
         return {
           ...shop,
@@ -113,18 +119,26 @@ export async function renderReportPage(router, params = {}) {
               <div class="app-header-subtitle">Shop targets, performance & activity</div>
             </div>
             <div class="app-header-actions">
-              <button id="rep-targets-goals-btn" class="btn-primary" style="padding: 7px 14px; font-size: 13px; font-weight: 600; min-height: 36px; border-radius: var(--radius-pill); box-shadow: var(--shadow-sm);">
-                🎯 Targets & Goals
+              <button id="rep-targets-goals-btn" class="btn-primary" style="padding: 7px 14px; font-size: 13px; font-weight: 600; min-height: 36px; border-radius: var(--radius-pill); box-shadow: var(--shadow-sm); cursor:pointer;">
+                🎯 + Set Targets
               </button>
             </div>
           </div>
         </header>
 
-        <div style="display:flex; flex-direction:column; gap:var(--space-4); margin-top:var(--space-2);">
-          <!-- Search Bar -->
-          <div class="search-input-wrapper">
-            <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="report-shop-search" class="search-input" placeholder="Search shops by name or address...">
+        <div style="display:flex; flex-direction:column; gap:var(--space-3); margin-top:var(--space-2);">
+          <!-- Month Selector for Overview -->
+          <div style="background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--radius-lg); padding:var(--space-2) var(--space-4); display:flex; align-items:center; justify-content:space-between; box-shadow:var(--shadow-xs);">
+            <button id="overview-month-prev" class="btn-action-small" style="padding:6px 12px; cursor:pointer;" title="Previous Month">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div style="display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:15px; font-weight:700; color:var(--text-primary);">
+              <span>📅</span>
+              <span id="overview-month-label">${monthNames[currentMonth - 1]} ${currentYear}</span>
+            </div>
+            <button id="overview-month-next" class="btn-action-small" style="padding:6px 12px; cursor:pointer;" title="Next Month">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
           </div>
 
           <!-- KPI Summary Card -->
@@ -190,6 +204,7 @@ export async function renderReportPage(router, params = {}) {
         filtered.forEach(shop => {
           const card = document.createElement('div');
           card.className = 'shop-report-card';
+          card.style.cursor = 'pointer';
 
           card.innerHTML = `
             <!-- Shop Header -->
@@ -253,16 +268,24 @@ export async function renderReportPage(router, params = {}) {
               </div>
             </div>
 
-            <!-- Action Link at Bottom -->
+            <!-- Action Link & Set Target CTA at Bottom -->
             <div style="border-top:1px solid var(--border-subtle); padding-top:10px; margin-top:4px; display:flex; justify-content:space-between; align-items:center;">
               <span style="font-size:12.5px; font-weight:700; color:var(--accent); display:flex; align-items:center; gap:4px;">
                 View Shop Report, Operations & Targets
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
               </span>
+              <button class="btn-secondary card-set-target-btn" data-shop-id="${shop.id}" style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: var(--radius-pill); cursor:pointer;">
+                🎯 Set Target
+              </button>
             </div>
           `;
 
-          card.addEventListener('click', () => {
+          card.addEventListener('click', (e) => {
+            if (e.target.closest('.card-set-target-btn')) {
+              e.stopPropagation();
+              openEditTargetSheet(shop, currentYear, currentMonth, shop);
+              return;
+            }
             activeShopId = shop.id;
             renderView();
           });
@@ -273,9 +296,29 @@ export async function renderReportPage(router, params = {}) {
 
       filterAndRenderShops();
 
-      // Search input handler
-      overviewEl.querySelector('#report-shop-search')?.addEventListener('input', (e) => {
-        filterAndRenderShops(e.target.value);
+      // Month Switcher handlers
+      overviewEl.querySelector('#overview-month-prev')?.addEventListener('click', async () => {
+        if (currentMonth === 1) {
+          currentMonth = 12;
+          currentYear--;
+        } else {
+          currentMonth--;
+        }
+        targetHistory = await Store.getTargetHistory(null, currentYear).catch(() => []);
+        monthTargets = targetHistory.filter(t => Number(t.targetMonth) === currentMonth);
+        renderView();
+      });
+
+      overviewEl.querySelector('#overview-month-next')?.addEventListener('click', async () => {
+        if (currentMonth === 12) {
+          currentMonth = 1;
+          currentYear++;
+        } else {
+          currentMonth++;
+        }
+        targetHistory = await Store.getTargetHistory(null, currentYear).catch(() => []);
+        monthTargets = targetHistory.filter(t => Number(t.targetMonth) === currentMonth);
+        renderView();
       });
 
       // Targets & Goals Header CTA
@@ -297,19 +340,28 @@ export async function renderReportPage(router, params = {}) {
 
       async function updateShopContent() {
         const monthNum = selectedMonthIdx + 1;
-        const targetData = await Store.getTargetDashboard(selectedShop.id, selectedYear, monthNum).catch(() => ({}));
-        const shopDailyReports = await Store.getDailyReports(selectedShop.id).catch(() => []);
-        const shopUsers = await Store.getUsers(selectedShop.id).catch(() => []);
-        const shopEnquiries = nonDeletedEntries.filter(e => e.shopId === selectedShop.id);
+        const [targetData, shopDailyReports, shopUsers] = await Promise.all([
+          Store.getTargetDashboard(selectedShop.id, selectedYear, monthNum).catch(() => ({})),
+          Store.getDailyReports(selectedShop.id).catch(() => []),
+          Store.getUsers(selectedShop.id).catch(() => [])
+        ]);
+        const shopEnquiries = nonDeletedEntries.filter(e => (e.shopId || '').toString() === (selectedShop.id || '').toString());
 
         const currentMonthReports = shopDailyReports.filter(r => {
-          const d = new Date(r.reportDate || r.report_date);
-          return d.getMonth() === selectedMonthIdx && d.getFullYear() === selectedYear;
+          const rShopId = (r.shopId || r.shop_id || '').toString();
+          if (rShopId && rShopId !== (selectedShop.id || '').toString()) return false;
+          const rDateStr = (r.reportDate || r.report_date || '');
+          if (!rDateStr) return false;
+          const parts = rDateStr.slice(0, 10).split('-');
+          if (parts.length < 3) return false;
+          const rYear = parseInt(parts[0], 10);
+          const rMonth = parseInt(parts[1], 10);
+          return rYear === selectedYear && rMonth === (selectedMonthIdx + 1);
         });
 
-        const totalCollection = currentMonthReports.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-        const totalTyresSold = currentMonthReports.reduce((s, r) => s + (Number(r.totalTyres) || 0), 0);
-        const totalServices = currentMonthReports.reduce((s, r) => s + (Number(r.totalServices) || 0), 0);
+        const totalCollection = currentMonthReports.reduce((s, r) => s + (Number(r.amount || r.total_amount || 0)), 0);
+        const totalTyresSold = currentMonthReports.reduce((s, r) => s + (Number(r.totalTyres || 0)), 0);
+        const totalServices = currentMonthReports.reduce((s, r) => s + (Number(r.totalServices || 0)), 0);
 
         singleEl.innerHTML = `
           <!-- Sub-header with Back -->
@@ -328,8 +380,9 @@ export async function renderReportPage(router, params = {}) {
               </div>
             </div>
             <div style="display:flex; align-items:center; gap:var(--space-2);">
-              <button id="single-rep-target-btn" class="header-action-btn" title="Edit Shop Target">
-                🎯
+              <button id="single-rep-target-btn" class="btn-primary" style="display:flex; align-items:center; gap:6px; padding:6px 14px; font-size:13px; font-weight:700; border-radius:var(--radius-pill); cursor:pointer;" title="Set Target Quotas">
+                <span>🎯</span>
+                <span>Set Target</span>
               </button>
               <button id="single-rep-refresh-btn" class="header-action-btn" title="Refresh">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
@@ -422,21 +475,21 @@ export async function renderReportPage(router, params = {}) {
 
           // 1. TARGETS PANEL
           if (activeSubTab === 'targets') {
-            const tyreTarget = targetData.targetTyres || (selectedShop.name === 'Flareminds' ? 280 : 100);
-            const tyreAchieved = targetData.achievedTyres || (selectedShop.name === 'Flareminds' ? 146 : 0);
-            const tyrePct = targetData.tyresPercentage || (tyreTarget > 0 ? Math.round((tyreAchieved / tyreTarget) * 100) : 0);
+            const tyreTarget = Number(targetData.targetTyres ?? targetData.tyreTarget ?? 0);
+            const tyreAchieved = Number(targetData.achievedTyres ?? targetData.tyreAchieved ?? 0);
+            const tyrePct = targetData.tyresPercentage ?? (tyreTarget > 0 ? Math.round((tyreAchieved / tyreTarget) * 100) : 0);
 
-            const revTarget = targetData.targetAmount || (selectedShop.name === 'Flareminds' ? 60000000 : 500000);
-            const revAchieved = targetData.achievedAmount || (selectedShop.name === 'Flareminds' ? 9343001 : 0);
-            const revPct = targetData.amountPercentage || (revTarget > 0 ? Math.round((revAchieved / revTarget) * 100) : 0);
+            const revTarget = Number(targetData.targetAmount ?? targetData.amountTarget ?? targetData.revenueTarget ?? 0);
+            const revAchieved = Number(targetData.achievedAmount ?? targetData.revenueAchieved ?? 0);
+            const revPct = targetData.amountPercentage ?? (revTarget > 0 ? Math.round((revAchieved / revTarget) * 100) : 0);
 
             panelEl.innerHTML = `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-3);">
                 <span style="font-family:var(--font-display); font-size:17px; font-weight:700; color:var(--text-primary);">
                   ${monthNames[selectedMonthIdx]} Quota & Achievement
                 </span>
-                <button id="rep-edit-target-cta" class="btn-action-small" style="color:var(--accent);">
-                  ✏️ Edit Quotas
+                <button id="rep-edit-target-cta" class="btn-primary" style="padding:6px 14px; font-size:12.5px; font-weight:700; border-radius:var(--radius-pill); cursor:pointer;">
+                  🎯 + Set Target Quotas
                 </button>
               </div>
 
@@ -497,25 +550,25 @@ export async function renderReportPage(router, params = {}) {
                   <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
                     <div style="font-size:11.5px; color:var(--text-muted);">2-Wheeler Enquiries</div>
                     <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.twoWheelerEnquiryTarget || 0}
+                      ${targetData.achieved4wEnq || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.twoWheelerEnquiryTarget || 0}</span>
                     </div>
                   </div>
                   <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
                     <div style="font-size:11.5px; color:var(--text-muted);">Wheel Alignments</div>
                     <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.wheelAlignmentTarget || 0}
+                      ${targetData.achievedWheelAlign || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.wheelAlignmentTarget || 0}</span>
                     </div>
                   </div>
                   <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
                     <div style="font-size:11.5px; color:var(--text-muted);">Commercial Tyres</div>
                     <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.commercialTyreTarget || 0}
+                      ${targetData.achievedCommercial || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.commercialTyreTarget || 0}</span>
                     </div>
                   </div>
                   <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
                     <div style="font-size:11.5px; color:var(--text-muted);">Above 17" Tyres</div>
                     <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.above17InchTarget || 0}
+                      ${targetData.achievedAbove17 || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.above17InchTarget || 0}</span>
                     </div>
                   </div>
                 </div>
@@ -683,15 +736,17 @@ export async function renderReportPage(router, params = {}) {
 
     // Modal: Targets & Goals for All Shops
     function openTargetsModal(shopsList, targetsList, year, month) {
+      const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const monthName = monthNames[month - 1] || 'Current Month';
       Sheet.open({
         title: 'Monthly Targets & Goals',
-        subtitle: `Quota settings for October ${year}`,
+        subtitle: `Quota settings for ${monthName} ${year}`,
         content: `
           <div style="display:flex; flex-direction:column; gap:var(--space-3);">
             ${shopsList.map(s => {
-              const target = targetsList.find(t => t.shopId === s.id);
-              const tyre = target?.tyreTarget || (s.name === 'Flareminds' ? 280 : (s.name === 'Tyre Point' ? 120 : 100));
-              const rev = target?.amountTarget || (s.name === 'Flareminds' ? 60000000 : (s.name === 'Tyre Point' ? 25400 : 500000));
+              const target = targetsList.find(t => (t.shopId || '').toString() === (s.id || '').toString());
+              const tyre = target?.tyreTarget ?? target?.targetTyres ?? 0;
+              const rev = target?.amountTarget ?? target?.targetAmount ?? 0;
               return `
                 <div style="background:var(--bg-subtle); border-radius:var(--radius-lg); padding:var(--space-4);">
                   <div style="font-family:var(--font-display); font-size:16px; font-weight:700; color:var(--text-primary); margin-bottom:var(--space-2);">
@@ -721,14 +776,10 @@ export async function renderReportPage(router, params = {}) {
               for (const s of shopsList) {
                 const tyreVal = parseInt(sheetEl.querySelector(`#target-tyre-${s.id}`)?.value || '0', 10);
                 const revVal = parseFloat(sheetEl.querySelector(`#target-rev-${s.id}`)?.value || '0');
-                await Store.createTarget({
-                  shopId: s.id,
-                  targetYear: year,
-                  targetMonth: month,
-                  tyreTarget: tyreVal,
-                  amountTarget: revVal
-                }).catch(() => null);
+                await Store.updateMonthlyTarget(s.id, revVal, tyreVal, null, year, month).catch(() => null);
               }
+              targetHistory = await Store.getTargetHistory(null, currentYear).catch(() => []);
+              monthTargets = targetHistory.filter(t => Number(t.targetMonth) === currentMonth);
               Toast.show('Targets updated successfully', 'success');
               Sheet.close();
               renderView();
@@ -741,25 +792,67 @@ export async function renderReportPage(router, params = {}) {
     }
 
     // Modal: Edit Single Shop Target
-    function openEditTargetSheet(shop, year, month, currentData) {
-      const curTyre = currentData.targetTyres || (shop.name === 'Flareminds' ? 280 : 100);
-      const curRev = currentData.targetAmount || (shop.name === 'Flareminds' ? 60000000 : 500000);
+    function openEditTargetSheet(shop, year, month, currentData = {}) {
+      const curTyre = currentData.targetTyres ?? currentData.tyreTarget ?? 0;
+      const curRev = currentData.targetAmount ?? currentData.amountTarget ?? currentData.revenueTarget ?? 0;
+      const s2wEnq = currentData.twoWheelerEnquiryTarget || currentData.fourWheelerEnquiryTarget || 30;
+      const s2wAlign = currentData.twoWheelerAlignmentTarget || 25;
+      const sWheelAlign = currentData.wheelAlignmentTarget || 50;
+      const sCommercial = currentData.commercialTyreTarget || 15;
+      const sRoWater = currentData.roWaterTarget || 40;
+      const sAbove17 = currentData.above17InchTarget || 20;
+
+      const monthName = monthNames[month - 1] || 'Month ' + month;
 
       Sheet.open({
-        title: `Edit Target - ${shop.name}`,
-        subtitle: `Set quotas for ${year} - Month ${month}`,
+        title: `Set Target - ${shop.name}`,
+        subtitle: `Configure monthly quotas for ${monthName} ${year}`,
         content: `
           <div style="display:flex; flex-direction:column; gap:var(--space-3);">
-            <div class="form-group">
-              <label class="form-label">Tyre Sales Target (Units)</label>
-              <input type="number" id="single-edit-tyre" class="form-input" value="${curTyre}" required>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-3);">
+              <div class="form-group">
+                <label class="form-label">Tyre Sales Target (Units) <span style="color:var(--accent);">*</span></label>
+                <input type="number" id="single-edit-tyre" class="form-input" value="${curTyre}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Revenue Target (₹) <span style="color:var(--accent);">*</span></label>
+                <input type="number" id="single-edit-rev" class="form-input" value="${curRev}" required>
+              </div>
             </div>
-            <div class="form-group">
-              <label class="form-label">Revenue Target (₹ Amount)</label>
-              <input type="number" id="single-edit-rev" class="form-input" value="${curRev}" required>
+
+            <div style="margin: 8px 0 4px; font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">
+              Service Targets (Units)
             </div>
-            <button id="single-save-target-btn" class="btn-primary" style="width:100%; margin-top:var(--space-2);">
-              Save Quotas
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-2);">
+              <div>
+                <label class="form-label" style="font-size:11.5px;">2W Enquiry</label>
+                <input type="number" id="single-edit-2w-enq" class="form-input" value="${s2wEnq}" style="padding:6px 10px; font-size:13px;">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:11.5px;">2W Alignment</label>
+                <input type="number" id="single-edit-2w-align" class="form-input" value="${s2wAlign}" style="padding:6px 10px; font-size:13px;">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:11.5px;">Wheel Alignment</label>
+                <input type="number" id="single-edit-wheel-align" class="form-input" value="${sWheelAlign}" style="padding:6px 10px; font-size:13px;">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:11.5px;">Commercial Tyre</label>
+                <input type="number" id="single-edit-comm" class="form-input" value="${sCommercial}" style="padding:6px 10px; font-size:13px;">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:11.5px;">RO Water</label>
+                <input type="number" id="single-edit-ro" class="form-input" value="${sRoWater}" style="padding:6px 10px; font-size:13px;">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:11.5px;">Above 17 Inch</label>
+                <input type="number" id="single-edit-above17" class="form-input" value="${sAbove17}" style="padding:6px 10px; font-size:13px;">
+              </div>
+            </div>
+
+            <button id="single-save-target-btn" class="btn-primary" style="width:100%; margin-top:var(--space-3); cursor:pointer;">
+              Save Target Quotas
             </button>
           </div>
         `,
@@ -767,14 +860,19 @@ export async function renderReportPage(router, params = {}) {
           sheetEl.querySelector('#single-save-target-btn')?.addEventListener('click', async () => {
             const tyreTarget = parseInt(sheetEl.querySelector('#single-edit-tyre')?.value || '0', 10);
             const amountTarget = parseFloat(sheetEl.querySelector('#single-edit-rev')?.value || '0');
+            const serviceTargets = {
+              twoWheelerEnquiryTarget: parseInt(sheetEl.querySelector('#single-edit-2w-enq')?.value || '0', 10),
+              twoWheelerAlignmentTarget: parseInt(sheetEl.querySelector('#single-edit-2w-align')?.value || '0', 10),
+              wheelAlignmentTarget: parseInt(sheetEl.querySelector('#single-edit-wheel-align')?.value || '0', 10),
+              commercialTyreTarget: parseInt(sheetEl.querySelector('#single-edit-comm')?.value || '0', 10),
+              roWaterTarget: parseInt(sheetEl.querySelector('#single-edit-ro')?.value || '0', 10),
+              above17InchTarget: parseInt(sheetEl.querySelector('#single-edit-above17')?.value || '0', 10)
+            };
+
             try {
-              await Store.createTarget({
-                shopId: shop.id,
-                targetYear: year,
-                targetMonth: month,
-                tyreTarget,
-                amountTarget
-              });
+              await Store.updateMonthlyTarget(shop.id, amountTarget, tyreTarget, serviceTargets, year, month);
+              targetHistory = await Store.getTargetHistory(null, currentYear).catch(() => []);
+              monthTargets = targetHistory.filter(t => Number(t.targetMonth) === currentMonth);
               Toast.show(`Updated target for ${shop.name}`, 'success');
               Sheet.close();
               renderView();

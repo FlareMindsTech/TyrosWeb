@@ -38,6 +38,19 @@
   --status-other: #475569;
   --status-other-bg: rgba(71, 85, 105, 0.12);
 
+  /* Legacy & View Aliases */
+  --accent-rust: var(--accent);
+  --accent-rust-hover: var(--accent-hover);
+  --accent-steel: #35516B;
+  --accent-steel-hover: #263c50;
+  --text-main: var(--text-primary);
+  --text-sub: var(--text-secondary);
+  --border-color: var(--border-default);
+  --row-divider: var(--border-subtle);
+  --card-bg: var(--bg-surface);
+  --field-bg: var(--bg-surface);
+  --font-condensed: var(--font-display);
+
   /* --- Spacing: 4px Base Scale --- */
   --space-0: 0px;
   --space-1: 4px;
