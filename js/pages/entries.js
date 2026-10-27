@@ -15,6 +15,10 @@ export async function renderEntriesPage(router, params = {}) {
   if (activeFilter === 'other') activeFilter = 'not_fitted';
   let selectedShopId = params.shopId || 'all';
   let selectedTimeFilter = params.time || 'all';
+  let selectedCustomDate = params.date || null;
+  if (selectedCustomDate) {
+    selectedTimeFilter = 'custom';
+  }
   let searchQuery = '';
   let allEntries = [];
   let shops = [];
@@ -36,13 +40,57 @@ export async function renderEntriesPage(router, params = {}) {
     return false;
   }
 
+  // Date utilities for Find Date calendar
+  function getEntryDate(entry) {
+    const raw = entry.followUpDate || entry.follow_up_date || entry.createdAt || entry.created_at || entry.date;
+    if (!raw) return null;
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatYMD(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function formatDateDisplay(ymd) {
+    if (!ymd) return '';
+    const parts = ymd.split('-');
+    if (parts.length !== 3) return ymd;
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function entryMatchesYMD(entry, ymd) {
+    if (!ymd) return false;
+    const raw = entry.followUpDate || entry.follow_up_date || entry.createdAt || entry.created_at || entry.date;
+    if (!raw) return false;
+    if (typeof raw === 'string' && raw.slice(0, 10) === ymd) return true;
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return false;
+    return formatYMD(d) === ymd;
+  }
+
+  function getEntriesForDate(ymd, shopId = selectedShopId) {
+    const nonDeleted = allEntries.filter(e => !e.isDeleted);
+    return nonDeleted.filter(e => {
+      if (!entryBelongsToShop(e, shopId)) return false;
+      return entryMatchesYMD(e, ymd);
+    });
+  }
+
   // Helper: check if entry matches the selected time range
   function matchesTimeFilter(entry, timeFilter) {
     if (!timeFilter || timeFilter === 'all') return true;
-    const rawDate = entry.followUpDate || entry.follow_up_date || entry.createdAt || entry.created_at || entry.date;
-    if (!rawDate) return true;
-    const d = new Date(rawDate);
-    if (isNaN(d.getTime())) return true;
+    if (timeFilter === 'custom') {
+      if (!selectedCustomDate) return true;
+      return entryMatchesYMD(entry, selectedCustomDate);
+    }
+    const d = getEntryDate(entry);
+    if (!d) return true;
 
     const now = new Date();
     if (timeFilter === 'today') {
@@ -267,6 +315,262 @@ export async function renderEntriesPage(router, params = {}) {
     });
   }
 
+  function openCalendarSheet() {
+    let calViewDate = selectedCustomDate ? new Date(selectedCustomDate + 'T00:00:00') : new Date();
+    if (isNaN(calViewDate.getTime())) calViewDate = new Date();
+    let calSelectedDate = selectedCustomDate || formatYMD(new Date());
+
+    const calContainer = document.createElement('div');
+    calContainer.className = 'cal-modal-wrap';
+
+    function renderCalView() {
+      const year = calViewDate.getFullYear();
+      const month = calViewDate.getMonth();
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthTitle = `${monthNames[month]} ${year}`;
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const todayYMD = formatYMD(new Date());
+
+      // Pre-calculate entry counts for this month in current shop
+      const countMap = {};
+      const shopEntries = allEntries.filter(e => !e.isDeleted && entryBelongsToShop(e, selectedShopId));
+      shopEntries.forEach(e => {
+        const d = getEntryDate(e);
+        if (d) {
+          const ymd = formatYMD(d);
+          countMap[ymd] = (countMap[ymd] || 0) + 1;
+        }
+      });
+
+      // Get matching entries for the currently selected date in the calendar
+      const selectedDayEntries = shopEntries.filter(e => entryMatchesYMD(e, calSelectedDate));
+
+      calContainer.innerHTML = `
+        <!-- Month Navigation Bar -->
+        <div class="cal-nav-bar">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button id="cal-prev-btn" class="cal-nav-btn" type="button" title="Previous Month">◀</button>
+            <span class="cal-month-title">${monthTitle}</span>
+            <button id="cal-next-btn" class="cal-nav-btn" type="button" title="Next Month">▶</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <button id="cal-today-btn" class="cal-today-btn" type="button" title="Jump to Today">Today</button>
+          </div>
+        </div>
+
+        <!-- Jump to Specific Date Quick Input -->
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--bg-subtle); padding:6px 12px; border-radius:10px;">
+          <span style="font-size:12.5px; font-weight:600; color:var(--text-secondary);">Direct Date:</span>
+          <input type="date" id="cal-date-input" value="${calSelectedDate}" style="border:1px solid var(--border-default); border-radius:6px; padding:3px 8px; font-size:12.5px; background:var(--bg-surface); color:var(--text-primary); cursor:pointer;" />
+        </div>
+
+        <!-- Weekdays Header -->
+        <div class="cal-weekdays">
+          <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
+        </div>
+
+        <!-- Days Grid -->
+        <div id="cal-grid" class="cal-grid"></div>
+
+        <!-- Selected Day's Queue & Details -->
+        <div class="cal-day-details-box">
+          <div class="cal-day-header">
+            <div>
+              <div class="cal-day-title">📅 Records for ${formatDateDisplay(calSelectedDate)}</div>
+              <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">
+                ${selectedDayEntries.length} ${selectedDayEntries.length === 1 ? 'customer record' : 'customer records'} found
+              </div>
+            </div>
+            ${selectedDayEntries.length > 0 ? `
+              <button id="cal-apply-direct-btn" type="button" class="btn-primary" style="font-size:12px; height:30px; padding:0 12px; border-radius:8px;">
+                Show on Page (${selectedDayEntries.length})
+              </button>
+            ` : ''}
+          </div>
+
+          <div class="cal-entries-scroll" id="cal-entries-list">
+            ${selectedDayEntries.length === 0 ? `
+              <div style="text-align:center; padding:22px 10px; color:var(--text-muted); font-size:13px;">
+                No enquiries or follow-ups recorded on this date.
+              </div>
+            ` : selectedDayEntries.map(entry => {
+              const avatar = getAvatarColors(entry.customerName);
+              const cleanPhone = (entry.mobileNumber || '').replace(/\D/g, '');
+              let badgeBg = 'rgba(234,88,12,0.12)';
+              let badgeColor = 'var(--status-pending)';
+              let badgeText = entry.status || 'PENDING';
+              if (entry.fitStatus === 'NOT_FIT' || entry.fit_status === 'NOT_FIT' || entry.status === 'LOST') {
+                badgeBg = 'rgba(225,29,72,0.12)';
+                badgeColor = '#E11D48';
+                badgeText = 'NOT FITTED';
+              } else if (entry.status === 'NO_RESPONSE' || entry.isNoResponse) {
+                badgeBg = 'rgba(124,58,237,0.12)';
+                badgeColor = '#7C3AED';
+                badgeText = 'NO RESPONSE';
+              } else if (entry.status === 'COMPLETED') {
+                badgeBg = 'rgba(22,163,74,0.12)';
+                badgeColor = 'var(--status-completed)';
+                badgeText = 'COMPLETED';
+              }
+
+              return `
+                <div class="cal-entry-item" data-id="${entry.id}">
+                  <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
+                    <div style="width:34px; height:34px; border-radius:50%; background:${avatar.bg}; color:${avatar.text}; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; flex-shrink:0;">
+                      ${getInitials(entry.customerName)}
+                    </div>
+                    <div style="min-width:0; flex:1;">
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-weight:700; font-size:13.5px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                          ${UI.escape(entry.customerName)}
+                        </span>
+                        <span style="font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; background:${badgeBg}; color:${badgeColor}; flex-shrink:0;">
+                          ${badgeText}
+                        </span>
+                      </div>
+                      <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                        📞 ${UI.escape(entry.mobileNumber)} ${entry.vehicleNumber ? `· 🚗 ${UI.escape(entry.vehicleNumber)}` : ''}
+                      </div>
+                      <div style="font-size:11.5px; color:var(--text-secondary); margin-top:1px;">
+                        ${UI.escape(entry.tyreBrand || '')} ${UI.escape(entry.tyreSize || '')} ${entry.amount ? `· <strong style="color:var(--accent);">₹${Number(entry.amount).toLocaleString('en-IN')}</strong>` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+                    <a href="tel:${entry.mobileNumber}" class="quick-action-btn" title="Call Customer" onclick="event.stopPropagation()">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </a>
+                    <a href="https://wa.me/91${cleanPhone}" target="_blank" rel="noopener" class="quick-action-btn btn-whatsapp" title="WhatsApp Chat" onclick="event.stopPropagation()">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                    </a>
+                    <button type="button" class="quick-action-btn cal-view-btn" data-id="${entry.id}" title="View Details" onclick="event.stopPropagation()">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+
+      // Fill Grid
+      const gridEl = calContainer.querySelector('#cal-grid');
+      // Blank cells for offset
+      for (let i = 0; i < firstDay; i++) {
+        const blank = document.createElement('div');
+        blank.className = 'cal-cell is-blank';
+        gridEl.appendChild(blank);
+      }
+
+      // Days of month
+      for (let day = 1; day <= daysInMonth; day++) {
+        const thisYMD = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const count = countMap[thisYMD] || 0;
+        const isSelected = thisYMD === calSelectedDate;
+        const isToday = thisYMD === todayYMD;
+
+        const cell = document.createElement('div');
+        cell.className = `cal-cell ${isSelected ? 'is-selected' : ''} ${isToday ? 'is-today' : ''}`;
+        cell.innerHTML = `
+          <span>${day}</span>
+          ${count > 0 ? `<span class="cal-cell-badge">${count}</span>` : ''}
+        `;
+
+        cell.addEventListener('click', () => {
+          calSelectedDate = thisYMD;
+          renderCalView();
+        });
+
+        gridEl.appendChild(cell);
+      }
+
+      // Bind calendar navigation
+      calContainer.querySelector('#cal-prev-btn')?.addEventListener('click', () => {
+        calViewDate.setMonth(calViewDate.getMonth() - 1);
+        renderCalView();
+      });
+
+      calContainer.querySelector('#cal-next-btn')?.addEventListener('click', () => {
+        calViewDate.setMonth(calViewDate.getMonth() + 1);
+        renderCalView();
+      });
+
+      calContainer.querySelector('#cal-today-btn')?.addEventListener('click', () => {
+        calViewDate = new Date();
+        calSelectedDate = formatYMD(new Date());
+        renderCalView();
+      });
+
+      calContainer.querySelector('#cal-date-input')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        if (val) {
+          calSelectedDate = val;
+          const [y, m, d] = val.split('-').map(Number);
+          calViewDate = new Date(y, m - 1, d);
+          renderCalView();
+        }
+      });
+
+      // Apply button inside day header
+      calContainer.querySelector('#cal-apply-direct-btn')?.addEventListener('click', () => {
+        selectedTimeFilter = 'custom';
+        selectedCustomDate = calSelectedDate;
+        Sheet.close();
+        renderUI();
+      });
+
+      // Bind click on entry cards inside the calendar
+      calContainer.querySelectorAll('.cal-entry-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const id = item.dataset.id;
+          const entry = allEntries.find(it => it.id === id);
+          if (entry) showEntryDetailSheet(entry);
+        });
+      });
+
+      calContainer.querySelectorAll('.cal-view-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.id;
+          const entry = allEntries.find(it => it.id === id);
+          if (entry) showEntryDetailSheet(entry);
+        });
+      });
+    }
+
+    renderCalView();
+
+    Sheet.show({
+      title: 'Find Date',
+      subtitle: 'Pick a date to inspect follow-ups & enquiries',
+      contentEl: calContainer,
+      actions: [
+        {
+          label: 'Filter Entries Page',
+          primary: true,
+          fullWidth: true,
+          onClick: () => {
+            selectedTimeFilter = 'custom';
+            selectedCustomDate = calSelectedDate;
+            renderUI();
+          }
+        },
+        {
+          label: 'Show All (Clear Date)',
+          primary: false,
+          onClick: () => {
+            selectedTimeFilter = 'all';
+            selectedCustomDate = null;
+            renderUI();
+          }
+        }
+      ]
+    });
+  }
+
   function renderUI() {
     const activeEl = document.activeElement;
     const isSearchFocused = activeEl && activeEl.id === 'entries-search-input';
@@ -338,19 +642,49 @@ export async function renderEntriesPage(router, params = {}) {
         </div>
 
         <!-- Filter Dropdowns Row -->
-        <div style="display:flex; gap:10px; margin-bottom:var(--space-3);">
+        <div style="display:flex; gap:10px; margin-bottom:var(--space-3); align-items:center;">
           <select id="entries-shop-select" class="form-input" style="flex:1; height:38px; font-size:13px; border-radius:10px; background:var(--bg-surface);">
             <option value="all" ${selectedShopId === 'all' ? 'selected' : ''}>🏪 All Shops (${shops.length})</option>
             ${shops.map(s => `<option value="${s.id}" ${(s.id || '').toString().trim() === selectedShopId.toString().trim() ? 'selected' : ''}>${UI.escape(s.name)}</option>`).join('')}
           </select>
 
-          <select id="entries-time-select" class="form-input" style="flex:1; height:38px; font-size:13px; border-radius:10px; background:var(--bg-surface);">
-            <option value="all" ${selectedTimeFilter === 'all' ? 'selected' : ''}>📅 All Time</option>
-            <option value="today" ${selectedTimeFilter === 'today' ? 'selected' : ''}>Today</option>
-            <option value="week" ${selectedTimeFilter === 'week' ? 'selected' : ''}>This Week</option>
-            <option value="month" ${selectedTimeFilter === 'month' ? 'selected' : ''}>This Month</option>
-          </select>
+          <div style="flex:1; display:flex; gap:6px;">
+            <select id="entries-time-select" class="form-input" style="flex:1; height:38px; font-size:13px; border-radius:10px; background:var(--bg-surface);">
+              ${selectedTimeFilter === 'custom' && selectedCustomDate ? `
+                <option value="custom" selected>📅 ${formatDateDisplay(selectedCustomDate)}</option>
+                <option value="find_date">📅 Pick another date...</option>
+                <option value="all">📅 All Time (Clear Date)</option>
+              ` : `
+                <option value="all" ${selectedTimeFilter === 'all' ? 'selected' : ''}>📅 All Time</option>
+              `}
+              <option value="today" ${selectedTimeFilter === 'today' ? 'selected' : ''}>Today</option>
+              <option value="week" ${selectedTimeFilter === 'week' ? 'selected' : ''}>This Week</option>
+              <option value="month" ${selectedTimeFilter === 'month' ? 'selected' : ''}>This Month</option>
+              ${selectedTimeFilter !== 'custom' ? `
+                <option value="find_date">📅 Find Date...</option>
+              ` : ''}
+            </select>
+            <button id="entries-calendar-btn" type="button" class="form-input" style="width:38px; height:38px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:10px; background:var(--bg-surface); cursor:pointer; flex-shrink:0; color:var(--accent);" title="Open Calendar (Find Date)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            </button>
+          </div>
         </div>
+
+        ${selectedTimeFilter === 'custom' && selectedCustomDate ? `
+          <!-- Active Date Filter Banner -->
+          <div class="active-date-banner">
+            <div style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--text-primary); min-width:0;">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2" style="flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                Date: <strong style="color:var(--accent);">${formatDateDisplay(selectedCustomDate)}</strong> (${filtered.length} ${filtered.length === 1 ? 'record' : 'records'})
+              </span>
+            </div>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+              <button id="entries-banner-change-btn" class="btn-action-small" style="background:var(--bg-surface);">Change Date</button>
+              <button id="entries-banner-clear-btn" class="btn-action-small" style="background:var(--bg-surface); color:var(--status-overdue);">✕ Clear</button>
+            </div>
+          </div>
+        ` : ''}
 
         <!-- Filter Pills Bar (All, Completed, Not Fitted, No Response, Pending, Overdue) -->
         <div class="filter-pills-row">
@@ -499,7 +833,33 @@ export async function renderEntriesPage(router, params = {}) {
     // Attach time filter listener
     const timeSelect = container.querySelector('#entries-time-select');
     timeSelect?.addEventListener('change', (e) => {
-      selectedTimeFilter = e.target.value;
+      const val = e.target.value;
+      if (val === 'find_date' || val === 'custom') {
+        openCalendarSheet();
+      } else if (val === 'all') {
+        selectedTimeFilter = 'all';
+        selectedCustomDate = null;
+        renderUI();
+      } else {
+        selectedTimeFilter = val;
+        selectedCustomDate = null;
+        renderUI();
+      }
+    });
+
+    // Calendar quick trigger button
+    container.querySelector('#entries-calendar-btn')?.addEventListener('click', () => {
+      openCalendarSheet();
+    });
+
+    // Active date banner buttons
+    container.querySelector('#entries-banner-change-btn')?.addEventListener('click', () => {
+      openCalendarSheet();
+    });
+
+    container.querySelector('#entries-banner-clear-btn')?.addEventListener('click', () => {
+      selectedTimeFilter = 'all';
+      selectedCustomDate = null;
       renderUI();
     });
 
