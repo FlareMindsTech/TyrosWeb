@@ -1,5 +1,5 @@
 // Tyros Web Service Worker
-const CACHE_NAME = 'tyros-admin-v6';
+const CACHE_NAME = 'tyros-admin-v7';
 const STATIC_ASSETS = [
   './',
   './index.html',

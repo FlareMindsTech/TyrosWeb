@@ -270,7 +270,7 @@ export async function renderTargets(router) {
         <p class="sheet-sub">Configure quota for ${shopObj?.name || 'Branch'} (${selectedMonth} ${selectedYear}).</p>
 
         <div class="form-group" style="margin: 0 0 12px;">
-          <label class="form-label">Revenue Target (₹) <span class="req">*</span></label>
+          <label class="form-label">Sales Value Target (₹) <span class="req">*</span></label>
           <input type="number" id="input-rev-target" class="form-input" value="${data.revenueTarget || 500000}" required>
         </div>
 

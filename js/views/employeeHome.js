@@ -80,7 +80,7 @@ export async function renderEmployeeHome(router) {
       <!-- Metric 1: Amount -->
       <div class="target-metric">
         <div class="metric-header">
-          <span class="metric-name">Revenue Target</span>
+          <span class="metric-name">Sales Value Target</span>
           <span class="metric-values">${UI.formatCurrency(targetData.achievedAmount)} / ${UI.formatCurrency(targetData.targetAmount)} (${targetData.amountPercentage}%)</span>
         </div>
         <div class="progress-track">

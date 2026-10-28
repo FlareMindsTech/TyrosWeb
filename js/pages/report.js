@@ -234,7 +234,7 @@ export async function renderReportPage(router, params = {}) {
                 <span style="font-weight:700; color:var(--text-primary);">${shop.achievedTyres} / ${shop.tyreTarget} (${shop.tyrePercentage}%)</span>
               </div>
               <div>
-                <span style="font-weight:700; color:var(--accent);">Revenue: ₹${Number(shop.achievedRevenue).toLocaleString('en-IN')} / ₹${Number(shop.revenueTarget).toLocaleString('en-IN')} (${shop.revenuePercentage}%)</span>
+                <span style="font-weight:700; color:var(--accent);">Sales Value: ₹${Number(shop.achievedRevenue).toLocaleString('en-IN')} / ₹${Number(shop.revenueTarget).toLocaleString('en-IN')} (${shop.revenuePercentage}%)</span>
               </div>
             </div>
 
@@ -517,14 +517,14 @@ export async function renderReportPage(router, params = {}) {
                 </div>
               </div>
 
-              <!-- Revenue Target Card -->
+              <!-- Sales Value Card -->
               <div class="manage-card" style="padding:var(--space-5);">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-3);">
                   <div style="display:flex; align-items:center; gap:10px;">
                     <div style="width:36px; height:36px; border-radius:var(--radius-md); background:rgba(34,197,94,0.12); display:flex; align-items:center; justify-content:center; color:#16A34A;">
                       <span style="font-size:18px; font-weight:700;">₹</span>
                     </div>
-                    <span style="font-family:var(--font-display); font-size:16px; font-weight:700; color:var(--text-primary);">Revenue Collection</span>
+                    <span style="font-family:var(--font-display); font-size:16px; font-weight:700; color:var(--text-primary);">Sales Value</span>
                   </div>
                   <span class="status-pill status-${revPct >= 100 ? 'completed' : 'pending'}">${revPct}% Achieved</span>
                 </div>
@@ -758,7 +758,7 @@ export async function renderReportPage(router, params = {}) {
                       <input type="number" id="target-tyre-${s.id}" class="form-input" value="${tyre}" style="font-size:14px; padding:8px;">
                     </div>
                     <div>
-                      <label class="form-label" style="font-size:11.5px;">Revenue Target (₹)</label>
+                      <label class="form-label" style="font-size:11.5px;">Sales Value Target (₹)</label>
                       <input type="number" id="target-rev-${s.id}" class="form-input" value="${rev}" style="font-size:14px; padding:8px;">
                     </div>
                   </div>
@@ -815,7 +815,7 @@ export async function renderReportPage(router, params = {}) {
                 <input type="number" id="single-edit-tyre" class="form-input" value="${curTyre}" required>
               </div>
               <div class="form-group">
-                <label class="form-label">Revenue Target (₹) <span style="color:var(--accent);">*</span></label>
+                <label class="form-label">Sales Value Target (₹) <span style="color:var(--accent);">*</span></label>
                 <input type="number" id="single-edit-rev" class="form-input" value="${curRev}" required>
               </div>
             </div>

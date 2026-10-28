@@ -188,7 +188,7 @@ async function renderAllShopsReportOverview(container, router, shops) {
             <span style="font-weight:700; color:var(--text-main);">${shop.achievedTyres} / ${shop.tyreTarget} (${shop.tyrePercentage}%)</span>
           </div>
           <div>
-            <span style="font-weight:700; color:var(--accent-rust);">Revenue: ₹${Number(shop.achievedRevenue).toLocaleString('en-IN')} / ₹${Number(shop.revenueTarget).toLocaleString('en-IN')} (${shop.revenuePercentage}%)</span>
+            <span style="font-weight:700; color:var(--accent-rust);">Sales Value: ₹${Number(shop.achievedRevenue).toLocaleString('en-IN')} / ₹${Number(shop.revenueTarget).toLocaleString('en-IN')} (${shop.revenuePercentage}%)</span>
           </div>
         </div>
 
@@ -386,14 +386,14 @@ async function renderSingleShopReport(container, router, selectedShop, shops) {
         <div style="font-size:12px; color:var(--text-muted);">${targetData.remainingTyres} tyres remaining</div>
       </div>
 
-      <!-- Revenue Target Card -->
+      <!-- Sales Value Target Card -->
       <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:14px; padding:18px; margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
           <div style="display:flex; align-items:center; gap:10px;">
             <div style="width:34px; height:34px; border-radius:8px; background:#FDF2E9; display:flex; align-items:center; justify-content:center; color:var(--accent-rust); font-weight:700; font-size:16px;">
               ₹
             </div>
-            <span style="font-size:15px; font-weight:700; color:var(--text-main);">Revenue Target</span>
+            <span style="font-size:15px; font-weight:700; color:var(--text-main);">Sales Value Target</span>
           </div>
           <span style="font-size:12px; font-weight:700; color:${targetData.amountPercentage >= 100 ? '#16A34A' : 'var(--accent-rust)'}; background:${targetData.amountPercentage >= 100 ? '#EAF7EE' : '#FDF2E9'}; padding:3px 10px; border-radius:10px;">${targetData.amountPercentage}%</span>
         </div>
