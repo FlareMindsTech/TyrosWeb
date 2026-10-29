@@ -548,7 +548,7 @@ export async function renderReportPage(router, params = {}) {
                 </div>
                 <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:var(--space-3);">
                   <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
-                    <div style="font-size:11.5px; color:var(--text-muted);">2-Wheeler Enquiries</div>
+                    <div style="font-size:11.5px; color:var(--text-muted);">2-Wheeler Tyres</div>
                     <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
                       ${targetData.achieved4wEnq || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.twoWheelerEnquiryTarget || 0}</span>
                     </div>
@@ -826,7 +826,7 @@ export async function renderReportPage(router, params = {}) {
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-2);">
               <div>
-                <label class="form-label" style="font-size:11.5px;">2W Enquiry</label>
+                <label class="form-label" style="font-size:11.5px;">2W Tyre</label>
                 <input type="number" id="single-edit-2w-enq" class="form-input" value="${s2wEnq}" style="padding:6px 10px; font-size:13px;">
               </div>
               <div>

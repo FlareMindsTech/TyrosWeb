@@ -329,7 +329,7 @@ export function renderDashboardPage(router) {
               <div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px;">Additional Service Targets</div>
               <div style="display:flex; flex-wrap:wrap; gap:8px;">
                 <span style="font-size:11.5px; background:var(--bg-subtle); color:var(--text-primary); padding:3px 10px; border-radius:6px; font-weight:600;">
-                  4W Enquiry: 62/25 (248%)
+                  2W Tyre: 62/25 (248%)
                 </span>
                 <span style="font-size:11.5px; background:var(--bg-subtle); color:var(--text-primary); padding:3px 10px; border-radius:6px; font-weight:600;">
                   2W Balancing: 67/25 (268%)

@@ -764,7 +764,7 @@ class StoreClass {
         tyreTarget,
         tyrePercentage,
         services: [
-          { name: '4W Enquiry', achieved: s4wEnqAchieved, target: s4wEnqTarget, percentage: Math.round((s4wEnqAchieved / s4wEnqTarget) * 100) },
+          { name: '2W Tyre', achieved: s4wEnqAchieved, target: s4wEnqTarget, percentage: Math.round((s4wEnqAchieved / s4wEnqTarget) * 100) },
           { name: '2W Balancing', achieved: s2wAlignAchieved, target: s2wAlignTarget, percentage: Math.round((s2wAlignAchieved / s2wAlignTarget) * 100) },
           { name: 'Wheel Alignment', achieved: sWheelAlignAchieved, target: sWheelAlignTarget, percentage: Math.round((sWheelAlignAchieved / sWheelAlignTarget) * 100) }
         ]
@@ -813,7 +813,7 @@ class StoreClass {
       achievedRoWater: shopTarget.achievedRoWater,
       achievedAbove17: shopTarget.achievedAbove17,
       services: [
-        { name: '4W Enquiry', achieved: shopTarget.achieved4wEnq, target: shopTarget.fourWheelerEnquiryTarget || 25, percentage: shopTarget.fourWheelerEnquiryTarget > 0 ? Math.round((shopTarget.achieved4wEnq / shopTarget.fourWheelerEnquiryTarget) * 100) : 0 },
+        { name: '2W Tyre', achieved: shopTarget.achieved4wEnq, target: shopTarget.fourWheelerEnquiryTarget || 25, percentage: shopTarget.fourWheelerEnquiryTarget > 0 ? Math.round((shopTarget.achieved4wEnq / shopTarget.fourWheelerEnquiryTarget) * 100) : 0 },
         { name: '2W Balancing', achieved: shopTarget.achieved2wAlign, target: shopTarget.twoWheelerAlignmentTarget || 25, percentage: shopTarget.twoWheelerAlignmentTarget > 0 ? Math.round((shopTarget.achieved2wAlign / shopTarget.twoWheelerAlignmentTarget) * 100) : 0 },
         { name: 'Wheel Alignment', achieved: shopTarget.achievedWheelAlign, target: shopTarget.wheelAlignmentTarget || 25, percentage: shopTarget.wheelAlignmentTarget > 0 ? Math.round((shopTarget.achievedWheelAlign / shopTarget.wheelAlignmentTarget) * 100) : 0 }
       ]

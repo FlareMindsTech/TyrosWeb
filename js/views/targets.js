@@ -109,7 +109,7 @@ export async function renderTargets(router) {
 
           <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:10px;">
             ${(data.services || [
-              { name: '4W Enquiry', achieved: 62, target: 25, percentage: 248 },
+              { name: '2W Tyre', achieved: 62, target: 25, percentage: 248 },
               { name: '2W Balancing', achieved: 67, target: 25, percentage: 268 },
               { name: 'Wheel Alignment', achieved: 101, target: 25, percentage: 404 }
             ]).map(s => `
@@ -193,7 +193,7 @@ export async function renderTargets(router) {
                 <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:12px;">
                   ${item.fourWheelerEnquiryTarget > 0 ? `
                     <span style="font-size:11px; background:#EFEAE0; color:var(--text-main); padding:3px 8px; border-radius:6px; font-weight:500;">
-                      4W Enquiry: ${item.achieved4wEnq}/${item.fourWheelerEnquiryTarget}
+                      2W Tyre: ${item.achieved4wEnq}/${item.fourWheelerEnquiryTarget}
                     </span>
                   ` : ''}
                   ${item.twoWheelerAlignmentTarget > 0 ? `
@@ -285,8 +285,8 @@ export async function renderTargets(router) {
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
           <div>
-            <label class="form-label" style="font-size:11.5px;">2W Enquiry</label>
-            <input type="number" id="input-srv-enq" class="form-input" value="${data.services?.find(s => s.name === '4W Enquiry' || s.name === '2W Enquiry')?.target ?? 25}">
+            <label class="form-label" style="font-size:11.5px;">2W Tyre</label>
+            <input type="number" id="input-srv-enq" class="form-input" value="${data.services?.find(s => s.name === '2W Tyre' || s.name === '4W Enquiry' || s.name === '2W Enquiry')?.target ?? 25}">
           </div>
           <div>
             <label class="form-label" style="font-size:11.5px;">2W Alignment</label>
