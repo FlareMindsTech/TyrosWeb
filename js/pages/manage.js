@@ -95,6 +95,7 @@ export async function renderManagePage(router, params = {}) {
 
       function switchTab(tab) {
         currentTab = tab;
+        listEl.innerHTML = '';
         if (tab === 'shops') {
           shopsBtn.classList.add('active');
           usersBtn.classList.remove('active');
@@ -129,6 +130,7 @@ export async function renderManagePage(router, params = {}) {
     // 1. SHOPS SUBTAB
     // =========================================================================
     function renderShopsList(listEl) {
+      listEl.innerHTML = '';
       if (shops.length === 0) {
         listEl.innerHTML = `
           <div class="empty-state-card">
@@ -248,6 +250,7 @@ export async function renderManagePage(router, params = {}) {
     // 2. USERS SUBTAB
     // =========================================================================
     function renderUsersList(listEl) {
+      listEl.innerHTML = '';
       if (users.length === 0) {
         listEl.innerHTML = `
           <div class="empty-state-card">

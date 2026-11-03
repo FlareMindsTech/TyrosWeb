@@ -71,6 +71,8 @@ class ApiClientClass {
     // Build headers
     const reqHeaders = {
       'Accept': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
       ...headers
     };
 
@@ -85,6 +87,7 @@ class ApiClientClass {
     const fetchOptions = {
       method,
       headers: reqHeaders,
+      cache: 'no-store',
       signal: controller.signal
     };
 

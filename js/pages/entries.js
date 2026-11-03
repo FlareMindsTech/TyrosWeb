@@ -15,9 +15,12 @@ export async function renderEntriesPage(router, params = {}) {
   if (activeFilter === 'other') activeFilter = 'not_fitted';
   let selectedShopId = params.shopId || 'all';
   let selectedTimeFilter = params.time || 'all';
-  let selectedCustomDate = params.date || null;
-  if (selectedCustomDate) {
+  let selectedCustomStartDate = params.startDate || params.date || null;
+  let selectedCustomEndDate = params.endDate || params.date || null;
+  if (selectedCustomStartDate || selectedCustomEndDate) {
     selectedTimeFilter = 'custom';
+    if (!selectedCustomEndDate) selectedCustomEndDate = selectedCustomStartDate;
+    if (!selectedCustomStartDate) selectedCustomStartDate = selectedCustomEndDate;
   }
   let searchQuery = '';
   let allEntries = [];
@@ -64,6 +67,13 @@ export async function renderEntriesPage(router, params = {}) {
     return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
+  function formatRangeDisplay(startYMD, endYMD) {
+    if (!startYMD && !endYMD) return '';
+    if (startYMD && (!endYMD || startYMD === endYMD)) return formatDateDisplay(startYMD);
+    if (!startYMD) return formatDateDisplay(endYMD);
+    return `${formatDateDisplay(startYMD)} – ${formatDateDisplay(endYMD)}`;
+  }
+
   function entryMatchesYMD(entry, ymd) {
     if (!ymd) return false;
     const raw = entry.followUpDate || entry.follow_up_date || entry.createdAt || entry.created_at || entry.date;
@@ -86,8 +96,13 @@ export async function renderEntriesPage(router, params = {}) {
   function matchesTimeFilter(entry, timeFilter) {
     if (!timeFilter || timeFilter === 'all') return true;
     if (timeFilter === 'custom') {
-      if (!selectedCustomDate) return true;
-      return entryMatchesYMD(entry, selectedCustomDate);
+      if (!selectedCustomStartDate && !selectedCustomEndDate) return true;
+      const d = getEntryDate(entry);
+      if (!d) return false;
+      const ymd = formatYMD(d);
+      const start = selectedCustomStartDate || selectedCustomEndDate;
+      const end = selectedCustomEndDate || selectedCustomStartDate;
+      return ymd >= start && ymd <= end;
     }
     const d = getEntryDate(entry);
     if (!d) return true;
@@ -152,9 +167,12 @@ export async function renderEntriesPage(router, params = {}) {
     </div>
   `;
 
-  async function loadData() {
+  async function loadData(showToastOnSuccess = false) {
     if (isFetching) return;
     isFetching = true;
+    const refreshIcon = container.querySelector('#entries-refresh-btn svg');
+    if (refreshIcon) refreshIcon.style.animation = 'spin 0.8s linear infinite';
+
     try {
       const [entriesData, shopsData] = await Promise.all([
         Store.getEntries({ limit: 100 }),
@@ -163,19 +181,28 @@ export async function renderEntriesPage(router, params = {}) {
       allEntries = entriesData || [];
       shops = shopsData || [];
       renderUI();
+      if (showToastOnSuccess) {
+        Toast.show(`Refreshed: ${allEntries.length} live records loaded`, 'success');
+      }
     } catch (err) {
       console.error('[Entries] Load error:', err);
-      container.innerHTML = `
-        <div style="text-align:center; padding: 48px var(--space-4); background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--radius-xl); margin-top:var(--space-4);">
-          <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
-          <h2 style="font-family:var(--font-display); font-size: 24px; color:var(--status-overdue); margin-bottom: 6px;">Failed to load entries</h2>
-          <p style="font-size: 13.5px; color:var(--text-muted); margin-bottom: 20px;">${UI.escape(err.message || 'Network error')}</p>
-          <button id="entries-retry-btn" class="btn-primary" style="margin: 0 auto;">Retry</button>
-        </div>
-      `;
-      container.querySelector('#entries-retry-btn')?.addEventListener('click', loadData);
+      if (allEntries.length === 0) {
+        container.innerHTML = `
+          <div style="text-align:center; padding: 48px var(--space-4); background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--radius-xl); margin-top:var(--space-4);">
+            <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
+            <h2 style="font-family:var(--font-display); font-size: 24px; color:var(--status-overdue); margin-bottom: 6px;">Failed to load entries</h2>
+            <p style="font-size: 13.5px; color:var(--text-muted); margin-bottom: 20px;">${UI.escape(err.message || 'Network error')}</p>
+            <button id="entries-retry-btn" class="btn-primary" style="margin: 0 auto;">Retry</button>
+          </div>
+        `;
+        container.querySelector('#entries-retry-btn')?.addEventListener('click', () => loadData(true));
+      } else {
+        Toast.show('Live sync failed: ' + (err.message || 'Network error'), 'error');
+      }
     } finally {
       isFetching = false;
+      const doneIcon = container.querySelector('#entries-refresh-btn svg');
+      if (doneIcon) doneIcon.style.animation = '';
     }
   }
 
@@ -316,9 +343,11 @@ export async function renderEntriesPage(router, params = {}) {
   }
 
   function openCalendarSheet() {
-    let calViewDate = selectedCustomDate ? new Date(selectedCustomDate + 'T00:00:00') : new Date();
+    let calViewDate = selectedCustomStartDate ? new Date(selectedCustomStartDate + 'T00:00:00') : new Date();
     if (isNaN(calViewDate.getTime())) calViewDate = new Date();
-    let calSelectedDate = selectedCustomDate || formatYMD(new Date());
+    let calRangeStart = selectedCustomStartDate || formatYMD(new Date());
+    let calRangeEnd = selectedCustomEndDate || calRangeStart;
+    let isSelectingRange = false; // true after user clicks first date to pick second date
 
     const calContainer = document.createElement('div');
     calContainer.className = 'cal-modal-wrap';
@@ -333,6 +362,10 @@ export async function renderEntriesPage(router, params = {}) {
       const daysInMonth = new Date(year, month + 1, 0).getDate();
       const todayYMD = formatYMD(new Date());
 
+      // Ensure normalized start and end for range check
+      const startYMD = calRangeStart <= calRangeEnd ? calRangeStart : calRangeEnd;
+      const endYMD = calRangeStart <= calRangeEnd ? calRangeEnd : calRangeStart;
+
       // Pre-calculate entry counts for this month in current shop
       const countMap = {};
       const shopEntries = allEntries.filter(e => !e.isDeleted && entryBelongsToShop(e, selectedShopId));
@@ -344,8 +377,13 @@ export async function renderEntriesPage(router, params = {}) {
         }
       });
 
-      // Get matching entries for the currently selected date in the calendar
-      const selectedDayEntries = shopEntries.filter(e => entryMatchesYMD(e, calSelectedDate));
+      // Matching entries within selected date range
+      const selectedRangeEntries = shopEntries.filter(e => {
+        const d = getEntryDate(e);
+        if (!d) return false;
+        const ymd = formatYMD(d);
+        return ymd >= startYMD && ymd <= endYMD;
+      });
 
       calContainer.innerHTML = `
         <!-- Month Navigation Bar -->
@@ -360,10 +398,30 @@ export async function renderEntriesPage(router, params = {}) {
           </div>
         </div>
 
-        <!-- Jump to Specific Date Quick Input -->
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--bg-subtle); padding:6px 12px; border-radius:10px;">
-          <span style="font-size:12.5px; font-weight:600; color:var(--text-secondary);">Direct Date:</span>
-          <input type="date" id="cal-date-input" value="${calSelectedDate}" style="border:1px solid var(--border-default); border-radius:6px; padding:3px 8px; font-size:12.5px; background:var(--bg-surface); color:var(--text-primary); cursor:pointer;" />
+        <!-- Quick Range Presets -->
+        <div class="cal-presets-bar">
+          <button type="button" class="cal-preset-btn" id="preset-whole-month" title="Select entire month">📅 Whole Month (1–${daysInMonth})</button>
+          <button type="button" class="cal-preset-btn" id="preset-today">Today</button>
+          <button type="button" class="cal-preset-btn" id="preset-this-month">This Month</button>
+          <button type="button" class="cal-preset-btn" id="preset-last-7">Last 7 Days</button>
+          <button type="button" class="cal-preset-btn" id="preset-last-30">Last 30 Days</button>
+        </div>
+
+        <!-- From and To Date Inputs Row -->
+        <div style="display:flex; align-items:center; gap:8px; background:var(--bg-subtle); padding:6px 10px; border-radius:10px;">
+          <div style="display:flex; align-items:center; gap:5px; flex:1;">
+            <span style="font-size:11.5px; font-weight:700; color:var(--text-muted);">From:</span>
+            <input type="date" id="cal-start-input" value="${startYMD}" style="width:100%; border:1px solid var(--border-default); border-radius:6px; padding:3px 6px; font-size:12px; background:var(--bg-surface); color:var(--text-primary); cursor:pointer;" />
+          </div>
+          <div style="display:flex; align-items:center; gap:5px; flex:1;">
+            <span style="font-size:11.5px; font-weight:700; color:var(--text-muted);">To:</span>
+            <input type="date" id="cal-end-input" value="${endYMD}" style="width:100%; border:1px solid var(--border-default); border-radius:6px; padding:3px 6px; font-size:12px; background:var(--bg-surface); color:var(--text-primary); cursor:pointer;" />
+          </div>
+        </div>
+
+        <!-- Range Selection Guidance Notice -->
+        <div style="font-size:11px; color:${isSelectingRange ? 'var(--accent)' : 'var(--text-muted)'}; text-align:center; margin-top:-2px; font-weight:${isSelectingRange ? '700' : '500'};">
+          ${isSelectingRange ? '👉 Select END date to complete your range' : '💡 Tap day to start range, or choose a preset above'}
         </div>
 
         <!-- Weekdays Header -->
@@ -378,24 +436,24 @@ export async function renderEntriesPage(router, params = {}) {
         <div class="cal-day-details-box">
           <div class="cal-day-header">
             <div>
-              <div class="cal-day-title">📅 Records for ${formatDateDisplay(calSelectedDate)}</div>
+              <div class="cal-day-title">📅 Records for ${formatRangeDisplay(startYMD, endYMD)}</div>
               <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">
-                ${selectedDayEntries.length} ${selectedDayEntries.length === 1 ? 'customer record' : 'customer records'} found
+                ${selectedRangeEntries.length} ${selectedRangeEntries.length === 1 ? 'customer record' : 'customer records'} found in range
               </div>
             </div>
-            ${selectedDayEntries.length > 0 ? `
+            ${selectedRangeEntries.length > 0 ? `
               <button id="cal-apply-direct-btn" type="button" class="btn-primary" style="font-size:12px; height:30px; padding:0 12px; border-radius:8px;">
-                Show on Page (${selectedDayEntries.length})
+                Show on Page (${selectedRangeEntries.length})
               </button>
             ` : ''}
           </div>
 
           <div class="cal-entries-scroll" id="cal-entries-list">
-            ${selectedDayEntries.length === 0 ? `
+            ${selectedRangeEntries.length === 0 ? `
               <div style="text-align:center; padding:22px 10px; color:var(--text-muted); font-size:13px;">
-                No enquiries or follow-ups recorded on this date.
+                No enquiries or follow-ups recorded in this date range.
               </div>
-            ` : selectedDayEntries.map(entry => {
+            ` : selectedRangeEntries.map(entry => {
               const avatar = getAvatarColors(entry.customerName);
               const cleanPhone = (entry.mobileNumber || '').replace(/\D/g, '');
               let badgeBg = 'rgba(234,88,12,0.12)';
@@ -439,13 +497,13 @@ export async function renderEntriesPage(router, params = {}) {
                     </div>
                   </div>
                   <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
-                    <a href="tel:${entry.mobileNumber}" class="quick-action-btn" title="Call Customer" onclick="event.stopPropagation()">
+                    <a href="tel:${entry.mobileNumber}" class="quick-action-btn" title="Call Customer">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                     </a>
-                    <a href="https://wa.me/91${cleanPhone}" target="_blank" rel="noopener" class="quick-action-btn btn-whatsapp" title="WhatsApp Chat" onclick="event.stopPropagation()">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                    <a href="https://wa.me/91${cleanPhone}" target="_blank" rel="noopener" class="quick-action-btn btn-whatsapp" title="WhatsApp Chat">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
                     </a>
-                    <button type="button" class="quick-action-btn cal-view-btn" data-id="${entry.id}" title="View Details" onclick="event.stopPropagation()">
+                    <button type="button" class="quick-action-btn cal-view-btn" data-id="${entry.id}" title="View Details">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
                     </button>
                   </div>
@@ -469,18 +527,45 @@ export async function renderEntriesPage(router, params = {}) {
       for (let day = 1; day <= daysInMonth; day++) {
         const thisYMD = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const count = countMap[thisYMD] || 0;
-        const isSelected = thisYMD === calSelectedDate;
+        const isStart = thisYMD === startYMD;
+        const isEnd = thisYMD === endYMD;
+        const isSingle = isStart && isEnd;
+        const isInRange = thisYMD > startYMD && thisYMD < endYMD;
         const isToday = thisYMD === todayYMD;
 
+        let cellClasses = 'cal-cell';
+        if (isSingle) {
+          cellClasses += ' is-selected is-range-start is-range-end';
+        } else if (isStart) {
+          cellClasses += ' is-range-start';
+        } else if (isEnd) {
+          cellClasses += ' is-range-end';
+        } else if (isInRange) {
+          cellClasses += ' is-in-range';
+        }
+        if (isToday) cellClasses += ' is-today';
+
         const cell = document.createElement('div');
-        cell.className = `cal-cell ${isSelected ? 'is-selected' : ''} ${isToday ? 'is-today' : ''}`;
+        cell.className = cellClasses;
         cell.innerHTML = `
           <span>${day}</span>
           ${count > 0 ? `<span class="cal-cell-badge">${count}</span>` : ''}
         `;
 
         cell.addEventListener('click', () => {
-          calSelectedDate = thisYMD;
+          if (!isSelectingRange) {
+            calRangeStart = thisYMD;
+            calRangeEnd = thisYMD;
+            isSelectingRange = true;
+          } else {
+            if (thisYMD < calRangeStart) {
+              calRangeEnd = calRangeStart;
+              calRangeStart = thisYMD;
+            } else {
+              calRangeEnd = thisYMD;
+            }
+            isSelectingRange = false;
+          }
           renderCalView();
         });
 
@@ -500,16 +585,83 @@ export async function renderEntriesPage(router, params = {}) {
 
       calContainer.querySelector('#cal-today-btn')?.addEventListener('click', () => {
         calViewDate = new Date();
-        calSelectedDate = formatYMD(new Date());
+        const t = formatYMD(new Date());
+        calRangeStart = t;
+        calRangeEnd = t;
+        isSelectingRange = false;
         renderCalView();
       });
 
-      calContainer.querySelector('#cal-date-input')?.addEventListener('change', (e) => {
+      // Bind Presets
+      calContainer.querySelector('#preset-whole-month')?.addEventListener('click', () => {
+        const sDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+        const eDay = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+        calRangeStart = sDay;
+        calRangeEnd = eDay;
+        isSelectingRange = false;
+        renderCalView();
+      });
+
+      calContainer.querySelector('#preset-today')?.addEventListener('click', () => {
+        const t = formatYMD(new Date());
+        calRangeStart = t;
+        calRangeEnd = t;
+        calViewDate = new Date();
+        isSelectingRange = false;
+        renderCalView();
+      });
+
+      calContainer.querySelector('#preset-this-month')?.addEventListener('click', () => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const lastDay = new Date(y, m + 1, 0).getDate();
+        calViewDate = new Date(y, m, 1);
+        calRangeStart = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+        calRangeEnd = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        isSelectingRange = false;
+        renderCalView();
+      });
+
+      calContainer.querySelector('#preset-last-7')?.addEventListener('click', () => {
+        const now = new Date();
+        const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+        calRangeStart = formatYMD(past);
+        calRangeEnd = formatYMD(now);
+        calViewDate = new Date(past);
+        isSelectingRange = false;
+        renderCalView();
+      });
+
+      calContainer.querySelector('#preset-last-30')?.addEventListener('click', () => {
+        const now = new Date();
+        const past = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+        calRangeStart = formatYMD(past);
+        calRangeEnd = formatYMD(now);
+        calViewDate = new Date(past);
+        isSelectingRange = false;
+        renderCalView();
+      });
+
+      // Bind Start & End Date Inputs
+      calContainer.querySelector('#cal-start-input')?.addEventListener('change', (e) => {
         const val = e.target.value;
         if (val) {
-          calSelectedDate = val;
+          calRangeStart = val;
+          if (calRangeStart > calRangeEnd) calRangeEnd = calRangeStart;
           const [y, m, d] = val.split('-').map(Number);
           calViewDate = new Date(y, m - 1, d);
+          isSelectingRange = false;
+          renderCalView();
+        }
+      });
+
+      calContainer.querySelector('#cal-end-input')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        if (val) {
+          calRangeEnd = val;
+          if (calRangeEnd < calRangeStart) calRangeStart = calRangeEnd;
+          isSelectingRange = false;
           renderCalView();
         }
       });
@@ -517,7 +669,8 @@ export async function renderEntriesPage(router, params = {}) {
       // Apply button inside day header
       calContainer.querySelector('#cal-apply-direct-btn')?.addEventListener('click', () => {
         selectedTimeFilter = 'custom';
-        selectedCustomDate = calSelectedDate;
+        selectedCustomStartDate = startYMD;
+        selectedCustomEndDate = endYMD;
         Sheet.close();
         renderUI();
       });
@@ -529,6 +682,10 @@ export async function renderEntriesPage(router, params = {}) {
           const entry = allEntries.find(it => it.id === id);
           if (entry) showEntryDetailSheet(entry);
         });
+      });
+
+      calContainer.querySelectorAll('.cal-entry-item a, .cal-entry-item button').forEach(el => {
+        el.addEventListener('click', (e) => e.stopPropagation());
       });
 
       calContainer.querySelectorAll('.cal-view-btn').forEach(btn => {
@@ -544,8 +701,8 @@ export async function renderEntriesPage(router, params = {}) {
     renderCalView();
 
     Sheet.show({
-      title: 'Find Date',
-      subtitle: 'Pick a date to inspect follow-ups & enquiries',
+      title: 'Find Date Range',
+      subtitle: 'Pick a date range or whole month to inspect follow-ups & enquiries',
       contentEl: calContainer,
       actions: [
         {
@@ -554,16 +711,18 @@ export async function renderEntriesPage(router, params = {}) {
           fullWidth: true,
           onClick: () => {
             selectedTimeFilter = 'custom';
-            selectedCustomDate = calSelectedDate;
+            selectedCustomStartDate = calRangeStart <= calRangeEnd ? calRangeStart : calRangeEnd;
+            selectedCustomEndDate = calRangeStart <= calRangeEnd ? calRangeEnd : calRangeStart;
             renderUI();
           }
         },
         {
-          label: 'Show All (Clear Date)',
+          label: 'Show All (Clear Date Filter)',
           primary: false,
           onClick: () => {
             selectedTimeFilter = 'all';
-            selectedCustomDate = null;
+            selectedCustomStartDate = null;
+            selectedCustomEndDate = null;
             renderUI();
           }
         }
@@ -613,6 +772,9 @@ export async function renderEntriesPage(router, params = {}) {
             </div>
           </div>
           <div class="header-actions">
+            <button id="entries-refresh-btn" class="header-icon-btn" title="Refresh Live Data">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </button>
             <button id="entries-profile-btn" class="header-icon-btn" title="Profile">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </button>
@@ -650,10 +812,10 @@ export async function renderEntriesPage(router, params = {}) {
 
           <div style="flex:1; display:flex; gap:6px;">
             <select id="entries-time-select" class="form-input" style="flex:1; height:38px; font-size:13px; border-radius:10px; background:var(--bg-surface);">
-              ${selectedTimeFilter === 'custom' && selectedCustomDate ? `
-                <option value="custom" selected>📅 ${formatDateDisplay(selectedCustomDate)}</option>
-                <option value="find_date">📅 Pick another date...</option>
-                <option value="all">📅 All Time (Clear Date)</option>
+              ${selectedTimeFilter === 'custom' && selectedCustomStartDate ? `
+                <option value="custom" selected>📅 ${formatRangeDisplay(selectedCustomStartDate, selectedCustomEndDate)}</option>
+                <option value="find_date">📅 Pick another range...</option>
+                <option value="all">📅 All Time (Clear Range)</option>
               ` : `
                 <option value="all" ${selectedTimeFilter === 'all' ? 'selected' : ''}>📅 All Time</option>
               `}
@@ -661,26 +823,26 @@ export async function renderEntriesPage(router, params = {}) {
               <option value="week" ${selectedTimeFilter === 'week' ? 'selected' : ''}>This Week</option>
               <option value="month" ${selectedTimeFilter === 'month' ? 'selected' : ''}>This Month</option>
               ${selectedTimeFilter !== 'custom' ? `
-                <option value="find_date">📅 Find Date...</option>
+                <option value="find_date">📅 Find Date Range...</option>
               ` : ''}
             </select>
-            <button id="entries-calendar-btn" type="button" class="form-input" style="width:38px; height:38px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:10px; background:var(--bg-surface); cursor:pointer; flex-shrink:0; color:var(--accent);" title="Open Calendar (Find Date)">
+            <button id="entries-calendar-btn" type="button" class="form-input" style="width:38px; height:38px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:10px; background:var(--bg-surface); cursor:pointer; flex-shrink:0; color:var(--accent);" title="Open Calendar (Find Date Range)">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
             </button>
           </div>
         </div>
 
-        ${selectedTimeFilter === 'custom' && selectedCustomDate ? `
+        ${selectedTimeFilter === 'custom' && selectedCustomStartDate ? `
           <!-- Active Date Filter Banner -->
           <div class="active-date-banner">
             <div style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--text-primary); min-width:0;">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2" style="flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
               <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                Date: <strong style="color:var(--accent);">${formatDateDisplay(selectedCustomDate)}</strong> (${filtered.length} ${filtered.length === 1 ? 'record' : 'records'})
+                Date Range: <strong style="color:var(--accent);">${formatRangeDisplay(selectedCustomStartDate, selectedCustomEndDate)}</strong> (${filtered.length} ${filtered.length === 1 ? 'record' : 'records'})
               </span>
             </div>
             <div style="display:flex; gap:6px; flex-shrink:0;">
-              <button id="entries-banner-change-btn" class="btn-action-small" style="background:var(--bg-surface);">Change Date</button>
+              <button id="entries-banner-change-btn" class="btn-action-small" style="background:var(--bg-surface);">Change Range</button>
               <button id="entries-banner-clear-btn" class="btn-action-small" style="background:var(--bg-surface); color:var(--status-overdue);">✕ Clear</button>
             </div>
           </div>
@@ -720,6 +882,11 @@ export async function renderEntriesPage(router, params = {}) {
     // Bind Excel button
     container.querySelector('#entries-excel-btn')?.addEventListener('click', () => {
       exportToExcel(filtered);
+    });
+
+    // Bind Refresh header button
+    container.querySelector('#entries-refresh-btn')?.addEventListener('click', () => {
+      loadData(true);
     });
 
     // Bind Profile header button
@@ -769,7 +936,7 @@ export async function renderEntriesPage(router, params = {}) {
                   ${UI.escape(entry.customerName)}
                 </div>
                 <div class="enquiry-cust-phone">
-                  <a href="tel:${entry.mobileNumber}" style="color:var(--text-muted); text-decoration:none;" onclick="event.stopPropagation()">
+                  <a href="tel:${entry.mobileNumber}" class="enquiry-phone-link" style="color:var(--text-muted); text-decoration:none;">
                     ${UI.escape(entry.mobileNumber)}
                   </a>
                 </div>
@@ -797,20 +964,26 @@ export async function renderEntriesPage(router, params = {}) {
               <span>·</span>
               <span>🕒 ${entry.dateText || '22 Oct, 11:30 AM'}</span>
             </div>
-            <div style="display:flex; align-items:center; gap:8px;" onclick="event.stopPropagation()">
+            <div class="enquiry-actions-group" style="display:flex; align-items:center; gap:8px;">
               <a href="tel:${entry.mobileNumber}" class="quick-action-btn" title="Call Customer">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
               </a>
               <a href="https://wa.me/91${cleanPhone}" target="_blank" rel="noopener" class="quick-action-btn btn-whatsapp" title="WhatsApp Chat">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
               </a>
-              <button class="quick-action-btn" title="View Details" onclick="showEntryDetailSheet(entry)">
+              <button type="button" class="quick-action-btn enquiry-detail-btn" title="View Details">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
             </div>
           </div>
         `;
 
+        card.querySelector('.enquiry-phone-link')?.addEventListener('click', (e) => e.stopPropagation());
+        card.querySelector('.enquiry-actions-group')?.addEventListener('click', (e) => e.stopPropagation());
+        card.querySelector('.enquiry-detail-btn')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showEntryDetailSheet(entry);
+        });
         card.addEventListener('click', () => showEntryDetailSheet(entry));
         listEl.appendChild(card);
       });
@@ -838,11 +1011,13 @@ export async function renderEntriesPage(router, params = {}) {
         openCalendarSheet();
       } else if (val === 'all') {
         selectedTimeFilter = 'all';
-        selectedCustomDate = null;
+        selectedCustomStartDate = null;
+        selectedCustomEndDate = null;
         renderUI();
       } else {
         selectedTimeFilter = val;
-        selectedCustomDate = null;
+        selectedCustomStartDate = null;
+        selectedCustomEndDate = null;
         renderUI();
       }
     });
@@ -859,7 +1034,8 @@ export async function renderEntriesPage(router, params = {}) {
 
     container.querySelector('#entries-banner-clear-btn')?.addEventListener('click', () => {
       selectedTimeFilter = 'all';
-      selectedCustomDate = null;
+      selectedCustomStartDate = null;
+      selectedCustomEndDate = null;
       renderUI();
     });
 
@@ -883,7 +1059,22 @@ export async function renderEntriesPage(router, params = {}) {
     }
   }
 
-  // Load live data
+  // Auto-refresh when user switches back to this tab
+  function handleVisibilityChange() {
+    if (document.visibilityState === 'visible' && !isFetching) {
+      loadData(false);
+    }
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  // Background polling every 45s while tab is open and visible
+  const pollTimer = setInterval(() => {
+    if (document.visibilityState === 'visible' && !isFetching) {
+      loadData(false);
+    }
+  }, 45000);
+
+  // Load live data initially
   loadData();
 
   return container;

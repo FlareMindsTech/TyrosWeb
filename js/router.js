@@ -9,9 +9,9 @@ export class HashRouter {
     this.routes = {
       '#/login': () => import('./pages/login.js?v=2.1.0').then(m => m.renderLoginPage),
       '#/dashboard': () => import('./pages/dashboard.js?v=2.1.0').then(m => m.renderDashboardPage),
-      '#/entries': () => import('./pages/entries.js?v=2.1.0').then(m => m.renderEntriesPage),
+      '#/entries': () => import('./pages/entries.js?v=2.2.6').then(m => m.renderEntriesPage),
       '#/report': () => import('./pages/report.js?v=2.1.0').then(m => m.renderReportPage),
-      '#/manage': () => import('./pages/manage.js?v=2.1.0').then(m => m.renderManagePage),
+      '#/manage': () => import('./pages/manage.js?v=2.2.0').then(m => m.renderManagePage),
       '#/profile': () => import('./pages/profile.js?v=2.1.0').then(m => m.renderProfilePage),
       '#/targets': () => import('./views/targets.js?v=2.1.0').then(m => m.renderTargets),
       '#/tyre-master': () => import('./views/tyreMaster.js?v=2.1.0').then(m => m.renderTyreMaster),
@@ -92,9 +92,10 @@ export class HashRouter {
               <div style="font-size:36px; margin-bottom:12px;">⚠️</div>
               <h2 style="font-family:var(--font-display); font-size:24px; color:var(--status-overdue);">Failed to load view</h2>
               <p style="font-size:13.5px; color:var(--text-muted); margin:8px 0 20px;">${err.message || 'An error occurred'}</p>
-              <button class="btn-primary" style="margin:0 auto;" onclick="window.location.reload()">Retry</button>
+              <button id="router-retry-btn" class="btn-primary" style="margin:0 auto;">Retry</button>
             </div>
           `;
+          this.container.querySelector('#router-retry-btn')?.addEventListener('click', () => window.location.reload());
         }
       }
     };
