@@ -669,7 +669,8 @@ class StoreClass {
         const custTyres = Number(r.tyre_customer_quantity || r.tyreCustomerQuantity || 0);
         const mechTyres = Number(r.tyre_mechanic_quantity || r.tyreMechanicQuantity || 0);
         const above17Tyres = Number(r.above_17_inch_customer_quantity || r.above17InchCustomerQuantity || 0) + Number(r.above_17_inch_mechanic_quantity || r.above17InchMechanicQuantity || 0);
-        achievedTyres += (custTyres + mechTyres + above17Tyres);
+        // AFTER (4-Wheeler tyres only):
+        achievedTyres += (custTyres + mechTyres);
 
         achievedAmount += Number(r.amount || r.total_amount || 0);
         achieved4wEnq += Number(r.two_wheeler_enquiry_customer_quantity || r.twoWheelerEnquiryCustomerQuantity || 0) + Number(r.two_wheeler_enquiry_mechanic_quantity || r.twoWheelerEnquiryMechanicQuantity || 0);
@@ -772,7 +773,8 @@ class StoreClass {
           const custTyres = Number(r.tyre_customer_quantity || r.tyreCustomerQuantity || 0);
           const mechTyres = Number(r.tyre_mechanic_quantity || r.tyreMechanicQuantity || 0);
           const above17 = Number(r.above_17_inch_customer_quantity || r.above17InchCustomerQuantity || 0) + Number(r.above_17_inch_mechanic_quantity || r.above17InchMechanicQuantity || 0);
-          tyreAchieved += (custTyres + mechTyres + above17);
+          // AFTER (4-Wheeler tyres only):
+          tyreAchieved += (custTyres + mechTyres);
 
           s4wEnqAchieved += Number(r.two_wheeler_enquiry_customer_quantity || r.twoWheelerEnquiryCustomerQuantity || 0) + Number(r.two_wheeler_enquiry_mechanic_quantity || r.twoWheelerEnquiryMechanicQuantity || 0);
           s2wAlignAchieved += Number(r.two_wheeler_alignment_customer_quantity || r.twoWheelerAlignmentCustomerQuantity || 0) + Number(r.two_wheeler_alignment_mechanic_quantity || r.twoWheelerAlignmentMechanicQuantity || 0);
