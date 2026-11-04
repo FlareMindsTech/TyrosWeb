@@ -722,7 +722,7 @@ export async function renderReportPage(router, params = {}) {
             panelEl.querySelectorAll('.report-item-card').forEach(card => {
               card.addEventListener('click', () => {
                 const rep = currentMonthReports.find(r => String(r.id || '') === String(card.dataset.id || ''));
-                if (rep) openDailyReportDetailsSheet(rep);
+                if (rep) openDailyReportDetailsSheet(rep, selectedShop);
               });
             });
 
@@ -964,7 +964,7 @@ export async function renderReportPage(router, params = {}) {
     }
 
     // Modal: Daily Report Breakdown (matching Flutter mobile app breakdown in Image 2)
-    function openDailyReportDetailsSheet(report) {
+    function openDailyReportDetailsSheet(report, shop = null) {
       const d = new Date(report.reportDate || report.report_date || Date.now());
       const dateStr = !isNaN(d.getTime())
         ? d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -983,39 +983,40 @@ export async function renderReportPage(router, params = {}) {
         }
       }
 
-      const shopName = report.shopName || selectedShop?.name || 'Workshop Branch';
+      const resolvedShop = shop || shops.find(s => String(s.id || '') === String(report.shopId || report.shop_id || '')) || null;
+      const shopName = report.shopName || resolvedShop?.name || 'Workshop Branch';
       const amountVal = Number(report.amount ?? report.total_amount ?? report.totalAmount ?? 0);
       const amountFormatted = amountVal.toFixed(2);
 
-      const fwCust = Number(report.tyreCustomerQuantity ?? report.tyre_customer_quantity ?? 0);
-      const fwMech = Number(report.tyreMechanicQuantity ?? report.tyre_mechanic_quantity ?? 0);
+      const fwCust = Number(report.tyreCustomerQuantity ?? report.tyre_customer_quantity ?? report.fourWheelerCustomer ?? 0);
+      const fwMech = Number(report.tyreMechanicQuantity ?? report.tyre_mechanic_quantity ?? report.fourWheelerMechanic ?? 0);
       const fwTotal = fwCust + fwMech;
 
-      const twCust = Number(report.twoWheelerEnquiryCustomerQuantity ?? report.two_wheeler_enquiry_customer_quantity ?? 0);
-      const twMech = Number(report.twoWheelerEnquiryMechanicQuantity ?? report.two_wheeler_enquiry_mechanic_quantity ?? 0);
+      const twCust = Number(report.twoWheelerEnquiryCustomerQuantity ?? report.two_wheeler_enquiry_customer_quantity ?? report.twoWheelerCustomer ?? 0);
+      const twMech = Number(report.twoWheelerEnquiryMechanicQuantity ?? report.two_wheeler_enquiry_mechanic_quantity ?? report.twoWheelerMechanic ?? 0);
       const twTotal = twCust + twMech;
 
-      const waCust = Number(report.wheelAlignmentCustomerQuantity ?? report.wheel_alignment_customer_quantity ?? 0);
-      const waMech = Number(report.wheelAlignmentMechanicQuantity ?? report.wheel_alignment_mechanic_quantity ?? 0);
+      const waCust = Number(report.wheelAlignmentCustomerQuantity ?? report.wheel_alignment_customer_quantity ?? report.wheelAlignmentCustomer ?? 0);
+      const waMech = Number(report.wheelAlignmentMechanicQuantity ?? report.wheel_alignment_mechanic_quantity ?? report.wheelAlignmentMechanic ?? 0);
       const waTotal = waCust + waMech;
 
-      const twbCust = Number(report.twoWheelerAlignmentCustomerQuantity ?? report.two_wheeler_alignment_customer_quantity ?? 0);
-      const twbMech = Number(report.twoWheelerAlignmentMechanicQuantity ?? report.two_wheeler_alignment_mechanic_quantity ?? 0);
+      const twbCust = Number(report.twoWheelerAlignmentCustomerQuantity ?? report.two_wheeler_alignment_customer_quantity ?? report.twoWheelerAlignmentCustomer ?? 0);
+      const twbMech = Number(report.twoWheelerAlignmentMechanicQuantity ?? report.two_wheeler_alignment_mechanic_quantity ?? report.twoWheelerAlignmentMechanic ?? 0);
       const twbTotal = twbCust + twbMech;
 
-      const commCust = Number(report.commercialTyreCustomerQuantity ?? report.commercial_tyre_customer_quantity ?? 0);
-      const commMech = Number(report.commercialTyreMechanicQuantity ?? report.commercial_tyre_mechanic_quantity ?? 0);
+      const commCust = Number(report.commercialTyreCustomerQuantity ?? report.commercial_tyre_customer_quantity ?? report.commercialCustomer ?? 0);
+      const commMech = Number(report.commercialTyreMechanicQuantity ?? report.commercial_tyre_mechanic_quantity ?? report.commercialMechanic ?? 0);
       const commTotal = commCust + commMech;
 
-      const a17Cust = Number(report.above17InchCustomerQuantity ?? report.above_17_inch_customer_quantity ?? 0);
-      const a17Mech = Number(report.above17InchMechanicQuantity ?? report.above_17_inch_mechanic_quantity ?? 0);
+      const a17Cust = Number(report.above17InchCustomerQuantity ?? report.above_17_inch_customer_quantity ?? report.above17Customer ?? 0);
+      const a17Mech = Number(report.above17InchMechanicQuantity ?? report.above_17_inch_mechanic_quantity ?? report.above17Mechanic ?? 0);
       const a17Total = a17Cust + a17Mech;
 
-      const roCust = Number(report.roWaterCustomerQuantity ?? report.ro_water_customer_quantity ?? 0);
-      const roMech = Number(report.roWaterMechanicQuantity ?? report.ro_water_mechanic_quantity ?? 0);
+      const roCust = Number(report.roWaterCustomerQuantity ?? report.ro_water_customer_quantity ?? report.roWaterCustomer ?? 0);
+      const roMech = Number(report.roWaterMechanicQuantity ?? report.ro_water_mechanic_quantity ?? report.roWaterMechanic ?? 0);
       const roTotal = roCust + roMech;
 
-      const revCust = Number(report.googleReviewCount ?? report.google_review_count ?? 0);
+      const revCust = Number(report.googleReviewCount ?? report.google_review_count ?? report.googleReviews ?? 0);
       const revMech = 0;
       const revTotal = revCust;
 
