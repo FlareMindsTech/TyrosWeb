@@ -918,19 +918,34 @@ class StoreClass {
         let mapped = list.map(r => {
           const custTyres = Number(r.tyre_customer_quantity ?? r.tyreCustomerQuantity ?? 0);
           const mechTyres = Number(r.tyre_mechanic_quantity ?? r.tyreMechanicQuantity ?? 0);
-          const above17Tyres = Number(r.above_17_inch_customer_quantity ?? r.above17InchCustomerQuantity ?? 0) + Number(r.above_17_inch_mechanic_quantity ?? r.above17InchMechanicQuantity ?? 0);
+          const above17Cust = Number(r.above_17_inch_customer_quantity ?? r.above17InchCustomerQuantity ?? 0);
+          const above17Mech = Number(r.above_17_inch_mechanic_quantity ?? r.above17InchMechanicQuantity ?? 0);
+          const above17Tyres = above17Cust + above17Mech;
           const computedTyres = custTyres + mechTyres + above17Tyres;
           const totalTyres = Number(r.totalTyres ?? r.total_tyres ?? computedTyres);
+
+          const twoWheelerCust = Number(r.two_wheeler_enquiry_customer_quantity ?? r.twoWheelerEnquiryCustomerQuantity ?? 0);
+          const twoWheelerMech = Number(r.two_wheeler_enquiry_mechanic_quantity ?? r.twoWheelerEnquiryMechanicQuantity ?? 0);
+
+          const wheelAlignCust = Number(r.wheel_alignment_customer_quantity ?? r.wheelAlignmentCustomerQuantity ?? 0);
+          const wheelAlignMech = Number(r.wheel_alignment_mechanic_quantity ?? r.wheelAlignmentMechanicQuantity ?? 0);
+
+          const twoWheelerAlignCust = Number(r.two_wheeler_alignment_customer_quantity ?? r.twoWheelerAlignmentCustomerQuantity ?? 0);
+          const twoWheelerAlignMech = Number(r.two_wheeler_alignment_mechanic_quantity ?? r.twoWheelerAlignmentMechanicQuantity ?? 0);
+
+          const commCust = Number(r.commercial_tyre_customer_quantity ?? r.commercialTyreCustomerQuantity ?? 0);
+          const commMech = Number(r.commercial_tyre_mechanic_quantity ?? r.commercialTyreMechanicQuantity ?? 0);
+
+          const roCust = Number(r.ro_water_customer_quantity ?? r.roWaterCustomerQuantity ?? 0);
+          const roMech = Number(r.ro_water_mechanic_quantity ?? r.roWaterMechanicQuantity ?? 0);
+
+          const patchQty = Number(r.tyre_patch_quantity ?? r.tyrePatchQuantity ?? 0);
+          const reviews = Number(r.google_review_count ?? r.googleReviewCount ?? 0);
 
           const amount = Number(r.amount ?? r.total_amount ?? r.totalAmount ?? 0);
 
           const services = Number(r.totalServices ?? r.total_services ?? (
-            Number(r.two_wheeler_alignment_customer_quantity ?? r.twoWheelerAlignmentCustomerQuantity ?? 0) +
-            Number(r.two_wheeler_alignment_mechanic_quantity ?? r.twoWheelerAlignmentMechanicQuantity ?? 0) +
-            Number(r.wheel_alignment_customer_quantity ?? r.wheelAlignmentCustomerQuantity ?? 0) +
-            Number(r.wheel_alignment_mechanic_quantity ?? r.wheelAlignmentMechanicQuantity ?? 0) +
-            Number(r.ro_water_customer_quantity ?? r.roWaterCustomerQuantity ?? 0) +
-            Number(r.ro_water_mechanic_quantity ?? r.roWaterMechanicQuantity ?? 0)
+            twoWheelerAlignCust + twoWheelerAlignMech + wheelAlignCust + wheelAlignMech + roCust + roMech + patchQty
           ));
 
           return {
@@ -944,7 +959,23 @@ class StoreClass {
             totalTyres,
             total_tyres: totalTyres,
             totalServices: services,
-            total_services: services
+            total_services: services,
+            tyreCustomerQuantity: custTyres,
+            tyreMechanicQuantity: mechTyres,
+            twoWheelerEnquiryCustomerQuantity: twoWheelerCust,
+            twoWheelerEnquiryMechanicQuantity: twoWheelerMech,
+            wheelAlignmentCustomerQuantity: wheelAlignCust,
+            wheelAlignmentMechanicQuantity: wheelAlignMech,
+            twoWheelerAlignmentCustomerQuantity: twoWheelerAlignCust,
+            twoWheelerAlignmentMechanicQuantity: twoWheelerAlignMech,
+            commercialTyreCustomerQuantity: commCust,
+            commercialTyreMechanicQuantity: commMech,
+            above17InchCustomerQuantity: above17Cust,
+            above17InchMechanicQuantity: above17Mech,
+            roWaterCustomerQuantity: roCust,
+            roWaterMechanicQuantity: roMech,
+            tyrePatchQuantity: patchQty,
+            googleReviewCount: reviews
           };
         });
 

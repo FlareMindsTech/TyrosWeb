@@ -483,6 +483,70 @@ export async function renderReportPage(router, params = {}) {
             const revAchieved = Number(targetData.achievedAmount ?? targetData.revenueAchieved ?? 0);
             const revPct = targetData.amountPercentage ?? (revTarget > 0 ? Math.round((revAchieved / revTarget) * 100) : 0);
 
+            // Aggregate Category Breakdown from currentMonthReports for this shop
+            const fwCust = currentMonthReports.reduce((s, r) => s + Number(r.tyreCustomerQuantity ?? r.tyre_customer_quantity ?? 0), 0);
+            const fwMech = currentMonthReports.reduce((s, r) => s + Number(r.tyreMechanicQuantity ?? r.tyre_mechanic_quantity ?? 0), 0);
+            const fwTotal = (fwCust + fwMech) || Number(targetData.achievedTyres ?? targetData.tyreAchieved ?? 0);
+            const fwTarget = Number(targetData.targetTyres || targetData.tyreTarget || 0);
+
+            const twCust = currentMonthReports.reduce((s, r) => s + Number(r.twoWheelerEnquiryCustomerQuantity ?? r.two_wheeler_enquiry_customer_quantity ?? 0), 0);
+            const twMech = currentMonthReports.reduce((s, r) => s + Number(r.twoWheelerEnquiryMechanicQuantity ?? r.two_wheeler_enquiry_mechanic_quantity ?? 0), 0);
+            const twTotal = (twCust + twMech) || Number(targetData.achieved4wEnq || 0);
+            const twTarget = Number(targetData.twoWheelerEnquiryTarget || 0);
+
+            const waCust = currentMonthReports.reduce((s, r) => s + Number(r.wheelAlignmentCustomerQuantity ?? r.wheel_alignment_customer_quantity ?? 0), 0);
+            const waMech = currentMonthReports.reduce((s, r) => s + Number(r.wheelAlignmentMechanicQuantity ?? r.wheel_alignment_mechanic_quantity ?? 0), 0);
+            const waTotal = (waCust + waMech) || Number(targetData.achievedWheelAlign || 0);
+            const waTarget = Number(targetData.wheelAlignmentTarget || 0);
+
+            const twbCust = currentMonthReports.reduce((s, r) => s + Number(r.twoWheelerAlignmentCustomerQuantity ?? r.two_wheeler_alignment_customer_quantity ?? 0), 0);
+            const twbMech = currentMonthReports.reduce((s, r) => s + Number(r.twoWheelerAlignmentMechanicQuantity ?? r.two_wheeler_alignment_mechanic_quantity ?? 0), 0);
+            const twbTotal = (twbCust + twbMech) || Number(targetData.achieved2wAlign || 0);
+            const twbTarget = Number(targetData.twoWheelerAlignmentTarget || 0);
+
+            const commCust = currentMonthReports.reduce((s, r) => s + Number(r.commercialTyreCustomerQuantity ?? r.commercial_tyre_customer_quantity ?? 0), 0);
+            const commMech = currentMonthReports.reduce((s, r) => s + Number(r.commercialTyreMechanicQuantity ?? r.commercial_tyre_mechanic_quantity ?? 0), 0);
+            const commTotal = (commCust + commMech) || Number(targetData.achievedCommercial || 0);
+            const commTarget = Number(targetData.commercialTyreTarget || 0);
+
+            const a17Cust = currentMonthReports.reduce((s, r) => s + Number(r.above17InchCustomerQuantity ?? r.above_17_inch_customer_quantity ?? 0), 0);
+            const a17Mech = currentMonthReports.reduce((s, r) => s + Number(r.above17InchMechanicQuantity ?? r.above_17_inch_mechanic_quantity ?? 0), 0);
+            const a17Total = (a17Cust + a17Mech) || Number(targetData.achievedAbove17 || 0);
+            const a17Target = Number(targetData.above17InchTarget || 0);
+
+            const roCust = currentMonthReports.reduce((s, r) => s + Number(r.roWaterCustomerQuantity ?? r.ro_water_customer_quantity ?? 0), 0);
+            const roMech = currentMonthReports.reduce((s, r) => s + Number(r.roWaterMechanicQuantity ?? r.ro_water_mechanic_quantity ?? 0), 0);
+            const roTotal = (roCust + roMech) || Number(targetData.achievedRoWater || 0);
+            const roTarget = Number(targetData.roWaterTarget || 0);
+
+            const revCust = currentMonthReports.reduce((s, r) => s + Number(r.googleReviewCount ?? r.google_review_count ?? 0), 0);
+            const revMech = 0;
+            const revTotal = revCust || Number(targetData.achievedGoogleReview || 0);
+            const googleRevTarget = Number(targetData.googleReviewTarget || 0);
+
+            const grandTyres = (fwTotal + a17Total) || totalTyresSold;
+            const grandServices = (waTotal + twbTotal + roTotal) || totalServices;
+
+            function renderBreakdownRow(name, cust, mech, total, target = 0) {
+              return `
+                <tr style="border-bottom:1px solid #ECE5D8;">
+                  <td style="padding:11px 14px; font-size:13.5px; font-weight:700; color:#231F1C;">
+                    ${name}
+                  </td>
+                  <td style="padding:11px 10px; font-size:13.5px; color:#6B6055; text-align:center;">
+                    ${cust}
+                  </td>
+                  <td style="padding:11px 10px; font-size:13.5px; color:#6B6055; text-align:center;">
+                    ${mech}
+                  </td>
+                  <td style="padding:11px 14px; text-align:right;">
+                    <span style="font-size:14px; font-weight:700; color:var(--accent);">${total}</span>
+                    ${target > 0 ? `<span style="font-size:11.5px; color:var(--text-muted); font-weight:500; margin-left:3px;">/ ${target}</span>` : ''}
+                  </td>
+                </tr>
+              `;
+            }
+
             panelEl.innerHTML = `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-3);">
                 <span style="font-family:var(--font-display); font-size:17px; font-weight:700; color:var(--text-primary);">
@@ -541,36 +605,46 @@ export async function renderReportPage(router, params = {}) {
                 </div>
               </div>
 
-              <!-- Operational Breakdown Targets -->
-              <div class="manage-card" style="padding:var(--space-4);">
-                <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted); margin-bottom:var(--space-3);">
-                  Service & Workshop Targets
+              <!-- DETAILED SERVICE BREAKDOWN (Image 2 style) -->
+              <div class="manage-card" style="padding:0; overflow:hidden; border:1px solid var(--border-default); border-radius:var(--radius-xl); background:var(--bg-surface); margin-top:var(--space-3); box-shadow:var(--shadow-xs);">
+                <div style="padding:14px 16px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; background:var(--bg-surface);">
+                  <div style="font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">
+                    Detailed Service Breakdown
+                  </div>
+                  <div style="font-size:12px; font-weight:600; color:var(--text-muted);">
+                    ${monthNames[selectedMonthIdx]} ${selectedYear}
+                  </div>
                 </div>
-                <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:var(--space-3);">
-                  <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
-                    <div style="font-size:11.5px; color:var(--text-muted);">2-Wheeler Tyres</div>
-                    <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.achieved4wEnq || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.twoWheelerEnquiryTarget || 0}</span>
-                    </div>
-                  </div>
-                  <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
-                    <div style="font-size:11.5px; color:var(--text-muted);">Wheel Alignments</div>
-                    <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.achievedWheelAlign || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.wheelAlignmentTarget || 0}</span>
-                    </div>
-                  </div>
-                  <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
-                    <div style="font-size:11.5px; color:var(--text-muted);">Commercial Tyres</div>
-                    <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.achievedCommercial || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.commercialTyreTarget || 0}</span>
-                    </div>
-                  </div>
-                  <div style="background:var(--bg-subtle); padding:var(--space-3); border-radius:var(--radius-md);">
-                    <div style="font-size:11.5px; color:var(--text-muted);">Above 17" Tyres</div>
-                    <div style="font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--text-primary); margin-top:2px;">
-                      ${targetData.achievedAbove17 || 0} <span style="font-size:12px; color:var(--text-muted); font-weight:400;">/ ${targetData.above17InchTarget || 0}</span>
-                    </div>
-                  </div>
+
+                <div style="overflow-x:auto;">
+                  <table style="width:100%; border-collapse:collapse; text-align:left; min-width:320px;">
+                    <thead>
+                      <tr style="background:#F4EFE6; border-bottom:1px solid var(--border-subtle);">
+                        <th style="padding:11px 14px; font-size:12px; font-weight:700; color:var(--text-muted);">Service / Category</th>
+                        <th style="padding:11px 12px; font-size:12px; font-weight:700; color:var(--text-muted); text-align:center;">Customer</th>
+                        <th style="padding:11px 12px; font-size:12px; font-weight:700; color:var(--text-muted); text-align:center;">Mechanic</th>
+                        <th style="padding:11px 14px; font-size:12px; font-weight:700; color:var(--text-muted); text-align:right;">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${renderBreakdownRow('1. Four Wheeler Tyre', fwCust, fwMech, fwTotal, fwTarget)}
+                      ${renderBreakdownRow('2. 2 Wheeler Sale', twCust, twMech, twTotal, twTarget)}
+                      ${renderBreakdownRow('3. Wheel Alignment', waCust, waMech, waTotal, waTarget)}
+                      ${renderBreakdownRow('4. Two Wheeler Balancing', twbCust, twbMech, twbTotal, twbTarget)}
+                      ${renderBreakdownRow('5. Commercial Tyre', commCust, commMech, commTotal, commTarget)}
+                      ${renderBreakdownRow('6. 17 Inch and Above Tyre', a17Cust, a17Mech, a17Total, a17Target)}
+                      ${renderBreakdownRow('7. Water Wash', roCust, roMech, roTotal, roTarget)}
+                      ${renderBreakdownRow('Google Review', revCust, revMech, revTotal, googleRevTarget)}
+                    </tbody>
+                    <tfoot>
+                      <tr style="background:#FAF6EE; border-top:1px solid var(--border-default);">
+                        <td style="padding:13px 14px; font-size:13.5px; font-weight:700; color:var(--text-primary);">Grand Total</td>
+                        <td colspan="3" style="padding:13px 14px; text-align:right; font-weight:700; color:var(--accent); font-size:13.5px;">
+                          ${grandTyres} Tyres · ${grandServices} Services
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
             `;
@@ -884,43 +958,157 @@ export async function renderReportPage(router, params = {}) {
       });
     }
 
-    // Modal: Daily Report Breakdown
+    // Modal: Daily Report Breakdown (matching Flutter mobile app breakdown in Image 2)
     function openDailyReportDetailsSheet(report) {
-      const d = new Date(report.reportDate || report.report_date);
-      const dateStr = d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const d = new Date(report.reportDate || report.report_date || Date.now());
+      const dateStr = !isNaN(d.getTime())
+        ? d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        : 'Daily Report Details';
+
+      let submittedAtStr = !isNaN(d.getTime())
+        ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        : 'N/A';
+
+      const rawCreated = report.createdAt || report.created_at || report.updatedAt || report.updated_at;
+      if (rawCreated) {
+        const cd = new Date(rawCreated);
+        if (!isNaN(cd.getTime())) {
+          submittedAtStr = cd.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ', ' +
+            cd.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+      }
+
+      const shopName = report.shopName || selectedShop?.name || 'Workshop Branch';
+      const amountVal = Number(report.amount ?? report.total_amount ?? report.totalAmount ?? 0);
+      const amountFormatted = amountVal.toFixed(2);
+
+      const fwCust = Number(report.tyreCustomerQuantity ?? report.tyre_customer_quantity ?? 0);
+      const fwMech = Number(report.tyreMechanicQuantity ?? report.tyre_mechanic_quantity ?? 0);
+      const fwTotal = fwCust + fwMech;
+
+      const twCust = Number(report.twoWheelerEnquiryCustomerQuantity ?? report.two_wheeler_enquiry_customer_quantity ?? 0);
+      const twMech = Number(report.twoWheelerEnquiryMechanicQuantity ?? report.two_wheeler_enquiry_mechanic_quantity ?? 0);
+      const twTotal = twCust + twMech;
+
+      const waCust = Number(report.wheelAlignmentCustomerQuantity ?? report.wheel_alignment_customer_quantity ?? 0);
+      const waMech = Number(report.wheelAlignmentMechanicQuantity ?? report.wheel_alignment_mechanic_quantity ?? 0);
+      const waTotal = waCust + waMech;
+
+      const twbCust = Number(report.twoWheelerAlignmentCustomerQuantity ?? report.two_wheeler_alignment_customer_quantity ?? 0);
+      const twbMech = Number(report.twoWheelerAlignmentMechanicQuantity ?? report.two_wheeler_alignment_mechanic_quantity ?? 0);
+      const twbTotal = twbCust + twbMech;
+
+      const commCust = Number(report.commercialTyreCustomerQuantity ?? report.commercial_tyre_customer_quantity ?? 0);
+      const commMech = Number(report.commercialTyreMechanicQuantity ?? report.commercial_tyre_mechanic_quantity ?? 0);
+      const commTotal = commCust + commMech;
+
+      const a17Cust = Number(report.above17InchCustomerQuantity ?? report.above_17_inch_customer_quantity ?? 0);
+      const a17Mech = Number(report.above17InchMechanicQuantity ?? report.above_17_inch_mechanic_quantity ?? 0);
+      const a17Total = a17Cust + a17Mech;
+
+      const roCust = Number(report.roWaterCustomerQuantity ?? report.ro_water_customer_quantity ?? 0);
+      const roMech = Number(report.roWaterMechanicQuantity ?? report.ro_water_mechanic_quantity ?? 0);
+      const roTotal = roCust + roMech;
+
+      const revCust = Number(report.googleReviewCount ?? report.google_review_count ?? 0);
+      const revMech = 0;
+      const revTotal = revCust;
+
+      const totalTyres = Number(report.totalTyres ?? report.total_tyres ?? (fwTotal + a17Total));
+      const totalServices = Number(report.totalServices ?? report.total_services ?? (waTotal + twbTotal + roTotal));
+
+      function renderModalRow(name, cust, mech, total) {
+        return `
+          <tr style="border-bottom:1px solid #ECE5D8;">
+            <td style="padding:11px 14px; font-size:13.5px; font-weight:700; color:#231F1C;">${name}</td>
+            <td style="padding:11px 10px; font-size:13.5px; color:#6B6055; text-align:center;">${cust}</td>
+            <td style="padding:11px 10px; font-size:13.5px; color:#6B6055; text-align:center;">${mech}</td>
+            <td style="padding:11px 14px; font-size:13.5px; font-weight:700; color:#D9531E; text-align:right;">${total}</td>
+          </tr>
+        `;
+      }
 
       Sheet.open({
-        title: 'Daily Report Details',
+        title: shopName,
         subtitle: dateStr,
         content: `
-          <div style="display:flex; flex-direction:column; gap:var(--space-4);">
-            <div style="display:flex; justify-content:space-between; align-items:baseline; background:var(--bg-subtle); padding:var(--space-4); border-radius:var(--radius-lg);">
-              <div>
-                <div style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Day Collection</div>
-                <div style="font-family:var(--font-display); font-size:26px; font-weight:700; color:var(--accent); margin-top:2px;">
-                  ₹${Number(report.amount || 0).toLocaleString('en-IN')}
-                </div>
+          <div style="display:flex; flex-direction:column; gap:var(--space-4); max-width:100%;">
+            <!-- Top Metadata Card (Shop Name, Collection Amount, Submitted At) -->
+            <div style="background:#FFFFFF; border:1px solid #ECE5D8; border-radius:14px; padding:12px 16px; box-shadow:var(--shadow-xs);">
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+                <span style="font-size:13px; color:#7A7165; font-weight:500;">Shop Name</span>
+                <span style="font-size:13.5px; font-weight:700; color:#231F1C;">${UI.escape(shopName)}</span>
               </div>
-              <div style="text-align:right;">
-                <div style="font-size:13px; font-weight:700; color:var(--text-primary);">${report.totalTyres || 0} Tyres Sold</div>
-                <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">${report.totalServices || 0} Services Logged</div>
+              <div style="height:1px; background:#F0ECE4; margin:4px 0;"></div>
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+                <span style="font-size:13px; color:#7A7165; font-weight:500;">Total Collection Amount</span>
+                <span style="font-size:15px; font-weight:700; color:#231F1C;">₹${amountFormatted}</span>
+              </div>
+              <div style="height:1px; background:#F0ECE4; margin:4px 0;"></div>
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+                <span style="font-size:13px; color:#7A7165; font-weight:500;">Submitted At</span>
+                <span style="font-size:13.5px; font-weight:700; color:#231F1C;">${submittedAtStr}</span>
+              </div>
+            </div>
+
+            <!-- DETAILED SERVICE BREAKDOWN Heading -->
+            <div>
+              <div style="font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:#7A7165; margin-bottom:8px;">
+                Detailed Service Breakdown
+              </div>
+
+              <!-- Table Card -->
+              <div style="border:1px solid #ECE5D8; border-radius:14px; overflow:hidden; background:#FFFFFF; box-shadow:var(--shadow-xs);">
+                <div style="overflow-x:auto;">
+                  <table style="width:100%; border-collapse:collapse; text-align:left; min-width:300px;">
+                    <thead>
+                      <tr style="background:#F4EFE6; border-bottom:1px solid #ECE5D8;">
+                        <th style="padding:10px 14px; font-size:12.5px; font-weight:700; color:#7A7165;">Service / Category</th>
+                        <th style="padding:10px 10px; font-size:12.5px; font-weight:700; color:#7A7165; text-align:center;">Customer</th>
+                        <th style="padding:10px 10px; font-size:12.5px; font-weight:700; color:#7A7165; text-align:center;">Mechanic</th>
+                        <th style="padding:10px 14px; font-size:12.5px; font-weight:700; color:#231F1C; text-align:right;">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${renderModalRow('1. Four Wheeler Tyre', fwCust, fwMech, fwTotal)}
+                      ${renderModalRow('2. 2 Wheeler Sale', twCust, twMech, twTotal)}
+                      ${renderModalRow('3. Wheel Alignment', waCust, waMech, waTotal)}
+                      ${renderModalRow('4. Two Wheeler Balancing', twbCust, twbMech, twbTotal)}
+                      ${renderModalRow('5. Commercial Tyre', commCust, commMech, commTotal)}
+                      ${renderModalRow('6. 17 Inch and Above Tyre', a17Cust, a17Mech, a17Total)}
+                      ${renderModalRow('7. Water Wash', roCust, roMech, roTotal)}
+                      ${renderModalRow('Google Review', revCust, revMech, revTotal)}
+                    </tbody>
+                    <tfoot>
+                      <tr style="background:#F4EFE6; border-top:1px solid #ECE5D8;">
+                        <td style="padding:12px 14px; font-size:13.5px; font-weight:700; color:#231F1C;">Grand Total</td>
+                        <td colspan="3" style="padding:12px 14px; text-align:right; font-weight:700; color:#D9531E; font-size:13.5px;">
+                          ${totalTyres} Tyres · ${totalServices} Services
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
             </div>
 
             ${report.notes ? `
-              <div>
-                <div style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px;">Supervisor Notes</div>
-                <div style="font-size:13.5px; color:var(--text-primary); line-height:1.4; background:var(--bg-surface); border:1px solid var(--border-default); padding:var(--space-3); border-radius:var(--radius-md);">
-                  ${UI.escape(report.notes)}
-                </div>
+              <div style="background:#FFFFFF; border:1px solid #ECE5D8; border-radius:12px; padding:12px 16px;">
+                <div style="font-size:11.5px; font-weight:700; text-transform:uppercase; color:#7A7165; margin-bottom:4px;">Supervisor Notes</div>
+                <div style="font-size:13px; color:#231F1C; line-height:1.4;">${UI.escape(report.notes)}</div>
               </div>
             ` : ''}
 
-            <button class="btn-secondary" style="width:100%;" onclick="document.querySelector('.sheet-close-btn')?.click()">
+            <button id="close-report-details-btn" class="btn-secondary" style="width:100%; margin-top:4px;">
               Close Details
             </button>
           </div>
-        `
+        `,
+        onMounted: (sheetEl) => {
+          sheetEl.querySelector('#close-report-details-btn')?.addEventListener('click', () => {
+            Sheet.close();
+          });
+        }
       });
     }
 
@@ -960,9 +1148,10 @@ export async function renderReportPage(router, params = {}) {
         <div style="font-size:36px; margin-bottom:12px;">⚠️</div>
         <div class="empty-state-title">Failed to load reports</div>
         <div class="empty-state-desc">${UI.escape(err.message || 'Check network connection')}</div>
-        <button class="btn-primary" style="margin:var(--space-4) auto 0;" onclick="window.location.reload()">Retry</button>
+        <button id="report-retry-btn" class="btn-primary" style="margin:var(--space-4) auto 0;">Retry</button>
       </div>
     `;
+    container.querySelector('#report-retry-btn')?.addEventListener('click', () => window.location.reload());
   }
 
   return container;

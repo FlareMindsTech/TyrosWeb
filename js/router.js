@@ -10,7 +10,7 @@ export class HashRouter {
       '#/login': () => import('./pages/login.js?v=2.1.0').then(m => m.renderLoginPage),
       '#/dashboard': () => import('./pages/dashboard.js?v=2.1.0').then(m => m.renderDashboardPage),
       '#/entries': () => import('./pages/entries.js?v=2.2.8').then(m => m.renderEntriesPage),
-      '#/report': () => import('./pages/report.js?v=2.1.0').then(m => m.renderReportPage),
+      '#/report': () => import('./pages/report.js?v=2.2.0').then(m => m.renderReportPage),
       '#/manage': () => import('./pages/manage.js?v=2.2.0').then(m => m.renderManagePage),
       '#/profile': () => import('./pages/profile.js?v=2.1.0').then(m => m.renderProfilePage),
       '#/targets': () => import('./views/targets.js?v=2.1.0').then(m => m.renderTargets),
