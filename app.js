@@ -1,5 +1,5 @@
 // Tyros Admin - Application Entry Point (app.js)
-import { Router } from './js/router.js';
+import { Router } from './js/router.js?v=2.5.0';
 import { Auth } from './js/auth.js';
 import { UI } from './js/ui.js';
 import { Sheet } from './js/sheet.js';

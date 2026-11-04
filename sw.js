@@ -1,5 +1,5 @@
 // Tyros Web Service Worker
-const CACHE_NAME = 'tyros-admin-v17';
+const CACHE_NAME = 'tyros-admin-v20';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -49,7 +49,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-first for JavaScript modules and HTML documents so changes appear immediately
+  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.html') || url.pathname === '/' || url.pathname.endsWith('/')) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-cache' })
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    caches.match(event.request).then((cachedResponse) => {
+      return cachedResponse || fetch(event.request);
+    })
   );
 });

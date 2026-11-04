@@ -5,7 +5,54 @@ import { Config } from './config.js';
 
 class StoreClass {
   constructor() {
+    this._cache = new Map();
+    this._inFlight = new Map();
     this.purgeDummyData();
+  }
+
+  // Generic in-memory cache with in-flight deduplication
+  async _getOrFetch(key, ttlMs, fetchFn, forceRefresh = false) {
+    const now = Date.now();
+    if (!forceRefresh && this._cache.has(key)) {
+      const item = this._cache.get(key);
+      if (now - item.timestamp < item.ttl) {
+        return item.data;
+      }
+    }
+
+    if (this._inFlight.has(key)) {
+      return this._inFlight.get(key);
+    }
+
+    const promise = (async () => {
+      try {
+        const result = await fetchFn();
+        this._cache.set(key, {
+          data: result,
+          timestamp: Date.now(),
+          ttl: ttlMs
+        });
+        return result;
+      } finally {
+        this._inFlight.delete(key);
+      }
+    })();
+
+    this._inFlight.set(key, promise);
+    return promise;
+  }
+
+  // Invalidate cached keys by exact key or prefix
+  invalidate(keyPrefix = null) {
+    if (!keyPrefix) {
+      this._cache.clear();
+      return;
+    }
+    for (const k of this._cache.keys()) {
+      if (k.startsWith(keyPrefix)) {
+        this._cache.delete(k);
+      }
+    }
   }
 
   // Purge any previously seeded mock data from LocalStorage
@@ -175,73 +222,75 @@ class StoreClass {
   // ==========================================
   // 1. Dashboard & Export API
   // ==========================================
-  async getAdminDashboard() {
-    try {
-      const [res, allEntries, shops] = await Promise.all([
-        ApiClient.get('/admin/dashboard').catch(() => null),
-        this.getEntries({ limit: 100 }),
-        this.getShops()
-      ]);
+  async getAdminDashboard(forceRefresh = false) {
+    return this._getOrFetch('adminDashboard', 20000, async () => {
+      try {
+        const [res, allEntries, shops] = await Promise.all([
+          ApiClient.get('/admin/dashboard').catch(() => null),
+          this.getEntries({ limit: 100 }),
+          this.getShops()
+        ]);
 
-      const data = res?.data || res || {};
-      const nonDeleted = allEntries.filter(e => !e.isDeleted);
-      const activeShops = shops.filter(s => s.isActive);
+        const data = res?.data || res || {};
+        const nonDeleted = allEntries.filter(e => !e.isDeleted);
+        const activeShops = shops.filter(s => s.isActive);
 
-      // Recompute from loaded entries so dashboard numbers 100% match entries list and search (matching Flutter)
-      const totalCust = nonDeleted.length > 0 ? new Set(nonDeleted.map(e => e.mobileNumber).filter(Boolean)).size : 31;
-      const pending = nonDeleted.filter(e => e.status === 'PENDING' && !e.isNotFitted && !e.isNoResponse && !e.isOverdue).length;
-      const overdue = nonDeleted.filter(e => e.isOverdue).length;
-      const completed = nonDeleted.filter(e => (e.status === 'COMPLETED' || e.status === 'WON') && !e.isNotFitted && !e.isNoResponse).length;
-      const notFitted = nonDeleted.filter(e => e.isNotFitted).length;
-      const noResponse = nonDeleted.filter(e => e.isNoResponse).length;
+        // Recompute from loaded entries so dashboard numbers 100% match entries list and search (matching Flutter)
+        const totalCust = nonDeleted.length > 0 ? new Set(nonDeleted.map(e => e.mobileNumber).filter(Boolean)).size : 31;
+        const pending = nonDeleted.filter(e => e.status === 'PENDING' && !e.isNotFitted && !e.isNoResponse && !e.isOverdue).length;
+        const overdue = nonDeleted.filter(e => e.isOverdue).length;
+        const completed = nonDeleted.filter(e => (e.status === 'COMPLETED' || e.status === 'WON') && !e.isNotFitted && !e.isNoResponse).length;
+        const notFitted = nonDeleted.filter(e => e.isNotFitted).length;
+        const noResponse = nonDeleted.filter(e => e.isNoResponse).length;
 
-      const shopPendingData = activeShops.map(shop => {
-        const pendingForShop = nonDeleted.filter(e => e.shopId === shop.id && e.status === 'PENDING' && !e.isNotFitted && !e.isNoResponse && !e.isOverdue).length;
-        const totalForShop = nonDeleted.filter(e => e.shopId === shop.id).length;
-        const completedForShop = nonDeleted.filter(e => e.shopId === shop.id && (e.status === 'COMPLETED' || e.status === 'WON') && !e.isNotFitted && !e.isNoResponse).length;
+        const shopPendingData = activeShops.map(shop => {
+          const pendingForShop = nonDeleted.filter(e => e.shopId === shop.id && e.status === 'PENDING' && !e.isNotFitted && !e.isNoResponse && !e.isOverdue).length;
+          const totalForShop = nonDeleted.filter(e => e.shopId === shop.id).length;
+          const completedForShop = nonDeleted.filter(e => e.shopId === shop.id && (e.status === 'COMPLETED' || e.status === 'WON') && !e.isNotFitted && !e.isNoResponse).length;
+          return {
+            shopId: shop.id,
+            shopName: shop.name,
+            name: shop.name,
+            pending: pendingForShop,
+            pendingEnquiries: pendingForShop,
+            totalEnquiries: totalForShop,
+            completedEnquiries: completedForShop
+          };
+        });
+
         return {
-          shopId: shop.id,
-          shopName: shop.name,
-          name: shop.name,
-          pending: pendingForShop,
-          pendingEnquiries: pendingForShop,
-          totalEnquiries: totalForShop,
-          completedEnquiries: completedForShop
+          totalEnquiries: nonDeleted.length || data.totalEnquiries || 82,
+          totalCustomers: totalCust > 0 ? totalCust : 31,
+          pendingEnquiries: pending,
+          pendingCount: pending,
+          completedEnquiries: completed > 0 ? completed : 51,
+          completedCount: completed > 0 ? completed : 51,
+          wonEnquiries: completed > 0 ? completed : 51,
+          overdueCount: overdue,
+          overdue: overdue,
+          notFittedCount: notFitted,
+          noResponseCount: noResponse,
+          dueToday: 0,
+          activeShops: activeShops.length,
+          shops: shopPendingData
         };
-      });
-
+      } catch (err) {
+        console.warn('[Store] getAdminDashboard API error:', err.message);
+      }
       return {
-        totalEnquiries: nonDeleted.length || data.totalEnquiries || 82,
-        totalCustomers: totalCust > 0 ? totalCust : 31,
-        pendingEnquiries: pending,
-        pendingCount: pending,
-        completedEnquiries: completed > 0 ? completed : 51,
-        completedCount: completed > 0 ? completed : 51,
-        wonEnquiries: completed > 0 ? completed : 51,
-        overdueCount: overdue,
-        overdue: overdue,
-        notFittedCount: notFitted,
-        noResponseCount: noResponse,
-        dueToday: 0,
-        activeShops: activeShops.length,
-        shops: shopPendingData
+        totalEnquiries: 82,
+        totalCustomers: 31,
+        pendingCount: 0,
+        overdueCount: 0,
+        completedCount: 51,
+        shops: [
+          { shopName: 'Flareminds', pending: 0, pendingEnquiries: 0 },
+          { shopName: 'Tyre Point', pending: 0, pendingEnquiries: 0 },
+          { shopName: 'bharath', pending: 0, pendingEnquiries: 0 },
+          { shopName: 'pk shop', pending: 0, pendingEnquiries: 0 }
+        ]
       };
-    } catch (err) {
-      console.warn('[Store] getAdminDashboard API error:', err.message);
-    }
-    return {
-      totalEnquiries: 82,
-      totalCustomers: 31,
-      pendingCount: 0,
-      overdueCount: 0,
-      completedCount: 51,
-      shops: [
-        { shopName: 'Flareminds', pending: 0, pendingEnquiries: 0 },
-        { shopName: 'Tyre Point', pending: 0, pendingEnquiries: 0 },
-        { shopName: 'bharath', pending: 0, pendingEnquiries: 0 },
-        { shopName: 'pk shop', pending: 0, pendingEnquiries: 0 }
-      ]
-    };
+    }, forceRefresh);
   }
 
   async downloadEnquiriesCsv() {
@@ -269,17 +318,19 @@ class StoreClass {
   // ==========================================
   // 2. Shop Management API
   // ==========================================
-  async getShops() {
-    try {
-      const res = await ApiClient.get('/admin/shops').catch(() => ApiClient.get('/employee/shops'));
-      const list = res?.data?.shops || res?.data || res?.shops || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        return list.map(s => this.normalizeShop(s)).filter(Boolean);
+  async getShops(forceRefresh = false) {
+    return this._getOrFetch('shops', 300000, async () => {
+      try {
+        const res = await ApiClient.get('/admin/shops').catch(() => ApiClient.get('/employee/shops'));
+        const list = res?.data?.shops || res?.data || res?.shops || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          return list.map(s => this.normalizeShop(s)).filter(Boolean);
+        }
+      } catch (err) {
+        console.warn('[Store] getShops API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getShops API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async getShopById(id) {
@@ -300,6 +351,7 @@ class StoreClass {
       gstNumber: shopData.gstNumber?.trim() || ''
     };
     const res = await ApiClient.post('/admin/shops', payload);
+    this.invalidate('shops');
     return res?.data?.shop || res?.data || res;
   }
 
@@ -310,19 +362,26 @@ class StoreClass {
     if (payload.phone !== undefined) payload.phone = payload.phone.trim();
     if (payload.gstNumber !== undefined) payload.gstNumber = payload.gstNumber.trim();
     const res = await ApiClient.patch(`/admin/shops/${id}`, payload);
+    this.invalidate('shops');
     return res?.data?.shop || res?.data || res;
   }
 
   async deactivateShop(id) {
-    return await ApiClient.patch(`/admin/shops/${id}/deactivate`);
+    const res = await ApiClient.patch(`/admin/shops/${id}/deactivate`);
+    this.invalidate('shops');
+    return res;
   }
 
   async activateShop(id) {
-    return await ApiClient.patch(`/admin/shops/${id}/activate`);
+    const res = await ApiClient.patch(`/admin/shops/${id}/activate`);
+    this.invalidate('shops');
+    return res;
   }
 
   async deleteShop(id) {
-    return await ApiClient.delete(`/admin/shops/${id}`);
+    const res = await ApiClient.delete(`/admin/shops/${id}`);
+    this.invalidate('shops');
+    return res;
   }
 
   async getShopsWithEmployees() {
@@ -338,18 +397,21 @@ class StoreClass {
   // ==========================================
   // 3. Employee & Staff Management API
   // ==========================================
-  async getUsers(shopId = null) {
-    try {
-      const params = shopId ? { shopId } : {};
-      const res = await ApiClient.get('/admin/users', params);
-      const list = res?.data?.users || res?.data || res?.users || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        return list.map(u => this.normalizeUser(u)).filter(Boolean);
+  async getUsers(shopId = null, forceRefresh = false) {
+    const cacheKey = `users:${shopId || 'all'}`;
+    return this._getOrFetch(cacheKey, 120000, async () => {
+      try {
+        const params = shopId ? { shopId } : {};
+        const res = await ApiClient.get('/admin/users', params);
+        const list = res?.data?.users || res?.data || res?.users || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          return list.map(u => this.normalizeUser(u)).filter(Boolean);
+        }
+      } catch (err) {
+        console.warn('[Store] getUsers API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getUsers API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async getUserById(id) {
@@ -372,6 +434,7 @@ class StoreClass {
       shopIds: Array.isArray(userData.shopIds) ? userData.shopIds : (userData.shopId ? [userData.shopId] : [])
     };
     const res = await ApiClient.post('/admin/users', payload);
+    this.invalidate('users');
     return res?.data?.user || res?.data || res;
   }
 
@@ -380,19 +443,26 @@ class StoreClass {
     if (payload.fullName) payload.fullName = payload.fullName.trim();
     if (payload.phone) payload.phone = payload.phone.trim().replace(/\D/g, '');
     const res = await ApiClient.patch(`/admin/users/${id}`, payload);
+    this.invalidate('users');
     return res?.data?.user || res?.data || res;
   }
 
   async deactivateUser(id) {
-    return await ApiClient.patch(`/admin/users/${id}/deactivate`);
+    const res = await ApiClient.patch(`/admin/users/${id}/deactivate`);
+    this.invalidate('users');
+    return res;
   }
 
   async activateUser(id) {
-    return await ApiClient.patch(`/admin/users/${id}/activate`);
+    const res = await ApiClient.patch(`/admin/users/${id}/activate`);
+    this.invalidate('users');
+    return res;
   }
 
   async deleteUser(id) {
-    return await ApiClient.delete(`/admin/users/${id}`);
+    const res = await ApiClient.delete(`/admin/users/${id}`);
+    this.invalidate('users');
+    return res;
   }
 
   async resetUserPassword(id, password) {
@@ -402,54 +472,52 @@ class StoreClass {
   // ==========================================
   // 4. Customer Enquiries API
   // ==========================================
-  async getEntries(filterParams = {}) {
-    try {
-      let params = {};
-      if (typeof filterParams === 'string') {
-        params = { shopId: filterParams };
-      } else if (filterParams && typeof filterParams === 'object') {
-        params = { ...filterParams };
-      }
-      if (!params.limit) {
-        params.limit = 100;
-      }
-      const res = await ApiClient.get('/admin/enquiries', params).catch(() => ApiClient.get('/employee/enquiries', params));
-      let list = res?.data?.enquiries || res?.data || res?.items || (Array.isArray(res) ? res : []);
-      if (!Array.isArray(list)) list = [];
+  async getEntries(filterParams = {}, forceRefresh = false) {
+    const cacheKey = `entries:${typeof filterParams === 'string' ? filterParams : JSON.stringify(filterParams)}`;
+    return this._getOrFetch(cacheKey, 20000, async () => {
+      try {
+        let params = {};
+        if (typeof filterParams === 'string') {
+          params = { shopId: filterParams };
+        } else if (filterParams && typeof filterParams === 'object') {
+          params = { ...filterParams };
+        }
+        if (!params.limit) {
+          params.limit = 100;
+        }
+        const res = await ApiClient.get('/admin/enquiries', params).catch(() => ApiClient.get('/employee/enquiries', params));
+        let list = res?.data?.enquiries || res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (!Array.isArray(list)) list = [];
 
-      // Automatic pagination to load all records if no specific page was requested
-      if (!params.page) {
-        const pageSize = params.limit || 100;
-        const totalPages = res?.data?.pagination?.totalPages || res?.pagination?.totalPages || res?.pagination?.total_pages || null;
-        let currentPage = 1;
-        const maxPages = totalPages ? Math.min(totalPages, 50) : 50;
-
-        // If the first page returned full limit (meaning more pages might exist), paginate forward
-        while (currentPage < maxPages) {
-          if (!totalPages && list.length < (currentPage * pageSize)) {
-            break;
-          }
-          currentPage++;
-          const nextRes = await ApiClient.get('/admin/enquiries', { ...params, page: currentPage })
-            .catch(() => ApiClient.get('/employee/enquiries', { ...params, page: currentPage }))
-            .catch(() => null);
-          const nextList = nextRes?.data?.enquiries || nextRes?.data || nextRes?.items || [];
-          if (Array.isArray(nextList) && nextList.length > 0) {
-            list = list.concat(nextList);
-            if (nextList.length < pageSize) {
-              break; // Last page reached
+        // Fast parallel pagination if multiple pages exist and no specific page was asked
+        if (!params.page) {
+          const totalPages = res?.data?.pagination?.totalPages || res?.pagination?.totalPages || res?.pagination?.total_pages || null;
+          if (totalPages && totalPages > 1) {
+            const maxP = Math.min(totalPages, 5); // Fetch up to 500 recent items max in parallel
+            const pageFetches = [];
+            for (let p = 2; p <= maxP; p++) {
+              pageFetches.push(
+                ApiClient.get('/admin/enquiries', { ...params, page: p })
+                  .catch(() => ApiClient.get('/employee/enquiries', { ...params, page: p }))
+                  .catch(() => null)
+              );
             }
-          } else {
-            break;
+            const pageResults = await Promise.all(pageFetches);
+            for (const nextRes of pageResults) {
+              const nextList = nextRes?.data?.enquiries || nextRes?.data || nextRes?.items || [];
+              if (Array.isArray(nextList) && nextList.length > 0) {
+                list = list.concat(nextList);
+              }
+            }
           }
         }
-      }
 
-      return list.map(e => this.normalizeEntry(e)).filter(Boolean);
-    } catch (err) {
-      console.warn('[Store] getEntries API error:', err.message);
-    }
-    return [];
+        return list.map(e => this.normalizeEntry(e)).filter(Boolean);
+      } catch (err) {
+        console.warn('[Store] getEntries API error:', err.message);
+      }
+      return [];
+    }, forceRefresh);
   }
 
   async getEntryById(id) {
@@ -466,6 +534,8 @@ class StoreClass {
 
   async createEntry(entryData) {
     const res = await ApiClient.post('/employee/enquiries', entryData);
+    this.invalidate('entries');
+    this.invalidate('adminDashboard');
     const created = res?.data?.enquiry || res?.data || res;
     return this.normalizeEntry(created);
   }
@@ -473,6 +543,8 @@ class StoreClass {
   async updateEntry(id, updates) {
     try {
       const res = await ApiClient.patch(`/admin/enquiries/${id}`, updates).catch(() => ApiClient.put(`/employee/enquiries/${id}`, updates));
+      this.invalidate('entries');
+      this.invalidate('adminDashboard');
       const updated = res?.data?.enquiry || res?.data || res;
       return this.normalizeEntry(updated);
     } catch (err) {
@@ -482,14 +554,20 @@ class StoreClass {
   }
 
   async reassignEnquiry(id, assignedToUserId, remarks = '') {
-    return await ApiClient.patch(`/admin/enquiries/${id}/reassign`, {
+    const res = await ApiClient.patch(`/admin/enquiries/${id}/reassign`, {
       assignedToUserId,
       remarks: remarks.trim()
     });
+    this.invalidate('entries');
+    this.invalidate('adminDashboard');
+    return res;
   }
 
   async deleteEntry(id) {
-    return await ApiClient.delete(`/admin/enquiries/${id}`);
+    const res = await ApiClient.delete(`/admin/enquiries/${id}`);
+    this.invalidate('entries');
+    this.invalidate('adminDashboard');
+    return res;
   }
 
   // ==========================================
@@ -522,117 +600,122 @@ class StoreClass {
     }
   }
 
-  async getTargetDashboard(shopId, targetYear, targetMonth) {
+  async getTargetDashboard(shopId, targetYear = null, targetMonth = null, forceRefresh = false) {
     const now = new Date();
     const y = Number(targetYear) || now.getFullYear();
     const m = Number(targetMonth) || (now.getMonth() + 1);
+    const cacheKey = `targetDashboard:${shopId}:${y}:${m}`;
 
-    try {
-      const [history, dailyReports, shops] = await Promise.all([
-        this.getTargetHistory(null, y),
-        this.getDailyReports(),
-        this.getShops()
-      ]);
+    return this._getOrFetch(cacheKey, 45000, async () => {
+      try {
+        const [history, dailyReports, shops] = await Promise.all([
+          this.getTargetHistory(null, y),
+          this.getDailyReports(),
+          this.getShops()
+        ]);
 
-      const shop = shops.find(s => (s.id || '').toString() === (shopId || '').toString());
-      const shopTarget = history.find(t =>
-        (t.shopId || '').toString() === (shopId || '').toString() &&
-        Number(t.targetMonth) === m &&
-        Number(t.targetYear) === y
-      );
+        const shop = shops.find(s => (s.id || '').toString() === (shopId || '').toString());
+        const shopTarget = history.find(t =>
+          (t.shopId || '').toString() === (shopId || '').toString() &&
+          Number(t.targetMonth) === m &&
+          Number(t.targetYear) === y
+        );
 
-      const enriched = shopTarget || this.enrichTargetWithDailyReports({
-        shopId: (shopId || '').toString(),
-        shopName: shop?.name || 'Branch',
-        targetYear: y,
-        targetMonth: m,
-        amountTarget: 0,
-        tyreTarget: 0
-      }, dailyReports);
+        const enriched = shopTarget || this.enrichTargetWithDailyReports({
+          shopId: (shopId || '').toString(),
+          shopName: shop?.name || 'Branch',
+          targetYear: y,
+          targetMonth: m,
+          amountTarget: 0,
+          tyreTarget: 0
+        }, dailyReports);
 
-      const targetAmount = Number(enriched.amountTarget ?? enriched.targetAmount ?? 0);
-      const targetTyres = Number(enriched.tyreTarget ?? enriched.targetTyres ?? 0);
-      const achievedAmount = Number(enriched.achievedAmount ?? 0);
-      const achievedTyres = Number(enriched.achievedTyres ?? 0);
-      const amountPercentage = enriched.amountPercentage ?? (targetAmount > 0 ? parseFloat(((achievedAmount / targetAmount) * 100).toFixed(1)) : 0);
-      const tyresPercentage = enriched.tyresPercentage ?? (targetTyres > 0 ? parseFloat(((achievedTyres / targetTyres) * 100).toFixed(1)) : 0);
+        const targetAmount = Number(enriched.amountTarget ?? enriched.targetAmount ?? 0);
+        const targetTyres = Number(enriched.tyreTarget ?? enriched.targetTyres ?? 0);
+        const achievedAmount = Number(enriched.achievedAmount ?? 0);
+        const achievedTyres = Number(enriched.achievedTyres ?? 0);
+        const amountPercentage = enriched.amountPercentage ?? (targetAmount > 0 ? parseFloat(((achievedAmount / targetAmount) * 100).toFixed(1)) : 0);
+        const tyresPercentage = enriched.tyresPercentage ?? (targetTyres > 0 ? parseFloat(((achievedTyres / targetTyres) * 100).toFixed(1)) : 0);
 
-      const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-      const formattedPeriod = `${monthNames[m - 1] || ''} ${y}`.trim();
+        const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const formattedPeriod = `${monthNames[m - 1] || ''} ${y}`.trim();
+
+        return {
+          id: enriched.id || shopId || '',
+          shopId: (shopId || enriched.shopId || '').toString(),
+          shopName: enriched.shopName || shop?.name || 'Branch',
+          formattedPeriod,
+          targetAmount,
+          amountTarget: targetAmount,
+          revenueTarget: targetAmount,
+          targetTyres,
+          tyreTarget: targetTyres,
+          achievedAmount,
+          revenueAchieved: achievedAmount,
+          achievedTyres,
+          tyreAchieved: achievedTyres,
+          amountPercentage,
+          tyresPercentage,
+          remainingAmount: Math.max(0, targetAmount - achievedAmount),
+          remainingTyres: Math.max(0, targetTyres - achievedTyres),
+          isOverallAchieved: targetAmount > 0 && targetTyres > 0 && achievedAmount >= targetAmount && achievedTyres >= targetTyres,
+          twoWheelerEnquiryTarget: Number(enriched.twoWheelerEnquiryTarget || enriched.fourWheelerEnquiryTarget || 0),
+          fourWheelerEnquiryTarget: Number(enriched.fourWheelerEnquiryTarget || enriched.twoWheelerEnquiryTarget || 0),
+          twoWheelerAlignmentTarget: Number(enriched.twoWheelerAlignmentTarget || 0),
+          wheelAlignmentTarget: Number(enriched.wheelAlignmentTarget || 0),
+          commercialTyreTarget: Number(enriched.commercialTyreTarget || 0),
+          roWaterTarget: Number(enriched.roWaterTarget || 0),
+          above17InchTarget: Number(enriched.above17InchTarget || 0),
+          achieved4wEnq: Number(enriched.achieved4wEnq || 0),
+          achieved2wAlign: Number(enriched.achieved2wAlign || 0),
+          achievedWheelAlign: Number(enriched.achievedWheelAlign || 0),
+          achievedCommercial: Number(enriched.achievedCommercial || 0),
+          achievedRoWater: Number(enriched.achievedRoWater || 0),
+          achievedAbove17: Number(enriched.achievedAbove17 || 0)
+        };
+      } catch (err) {
+        console.warn('[Store] getTargetDashboard error:', err.message);
+      }
 
       return {
-        id: enriched.id || shopId || '',
-        shopId: (shopId || enriched.shopId || '').toString(),
-        shopName: enriched.shopName || shop?.name || 'Branch',
-        formattedPeriod,
-        targetAmount,
-        amountTarget: targetAmount,
-        revenueTarget: targetAmount,
-        targetTyres,
-        tyreTarget: targetTyres,
-        achievedAmount,
-        revenueAchieved: achievedAmount,
-        achievedTyres,
-        tyreAchieved: achievedTyres,
-        amountPercentage,
-        tyresPercentage,
-        remainingAmount: Math.max(0, targetAmount - achievedAmount),
-        remainingTyres: Math.max(0, targetTyres - achievedTyres),
-        isOverallAchieved: targetAmount > 0 && targetTyres > 0 && achievedAmount >= targetAmount && achievedTyres >= targetTyres,
-        twoWheelerEnquiryTarget: Number(enriched.twoWheelerEnquiryTarget || enriched.fourWheelerEnquiryTarget || 0),
-        fourWheelerEnquiryTarget: Number(enriched.fourWheelerEnquiryTarget || enriched.twoWheelerEnquiryTarget || 0),
-        twoWheelerAlignmentTarget: Number(enriched.twoWheelerAlignmentTarget || 0),
-        wheelAlignmentTarget: Number(enriched.wheelAlignmentTarget || 0),
-        commercialTyreTarget: Number(enriched.commercialTyreTarget || 0),
-        roWaterTarget: Number(enriched.roWaterTarget || 0),
-        above17InchTarget: Number(enriched.above17InchTarget || 0),
-        achieved4wEnq: Number(enriched.achieved4wEnq || 0),
-        achieved2wAlign: Number(enriched.achieved2wAlign || 0),
-        achievedWheelAlign: Number(enriched.achievedWheelAlign || 0),
-        achievedCommercial: Number(enriched.achievedCommercial || 0),
-        achievedRoWater: Number(enriched.achievedRoWater || 0),
-        achievedAbove17: Number(enriched.achievedAbove17 || 0)
+        shopId: (shopId || '').toString(),
+        shopName: 'Branch',
+        formattedPeriod: 'Current Period',
+        targetAmount: 0,
+        amountTarget: 0,
+        revenueTarget: 0,
+        targetTyres: 0,
+        tyreTarget: 0,
+        achievedAmount: 0,
+        revenueAchieved: 0,
+        achievedTyres: 0,
+        tyreAchieved: 0,
+        amountPercentage: 0,
+        tyresPercentage: 0,
+        remainingAmount: 0,
+        remainingTyres: 0,
+        isOverallAchieved: false,
+        twoWheelerEnquiryTarget: 0,
+        fourWheelerEnquiryTarget: 0,
+        twoWheelerAlignmentTarget: 0,
+        wheelAlignmentTarget: 0,
+        commercialTyreTarget: 0,
+        roWaterTarget: 0,
+        above17InchTarget: 0,
+        achieved4wEnq: 0,
+        achieved2wAlign: 0,
+        achievedWheelAlign: 0,
+        achievedCommercial: 0,
+        achievedRoWater: 0,
+        achievedAbove17: 0
       };
-    } catch (err) {
-      console.warn('[Store] getTargetDashboard error:', err.message);
-    }
-
-    return {
-      shopId: (shopId || '').toString(),
-      shopName: 'Branch',
-      formattedPeriod: 'Current Period',
-      targetAmount: 0,
-      amountTarget: 0,
-      revenueTarget: 0,
-      targetTyres: 0,
-      tyreTarget: 0,
-      achievedAmount: 0,
-      revenueAchieved: 0,
-      achievedTyres: 0,
-      tyreAchieved: 0,
-      amountPercentage: 0,
-      tyresPercentage: 0,
-      remainingAmount: 0,
-      remainingTyres: 0,
-      isOverallAchieved: false,
-      twoWheelerEnquiryTarget: 0,
-      fourWheelerEnquiryTarget: 0,
-      twoWheelerAlignmentTarget: 0,
-      wheelAlignmentTarget: 0,
-      commercialTyreTarget: 0,
-      roWaterTarget: 0,
-      above17InchTarget: 0,
-      achieved4wEnq: 0,
-      achieved2wAlign: 0,
-      achievedWheelAlign: 0,
-      achievedCommercial: 0,
-      achievedRoWater: 0,
-      achievedAbove17: 0
-    };
+    }, forceRefresh);
   }
 
   async updateTarget(id, updates) {
-    return await ApiClient.patch(`/admin/targets/${id}`, updates);
+    const res = await ApiClient.patch(`/admin/targets/${id}`, updates);
+    this.invalidate('target');
+    return res;
   }
 
   enrichTargetWithDailyReports(t, reports = []) {
@@ -718,146 +801,151 @@ class StoreClass {
     };
   }
 
-  async getTargetHistory(shopId = null, targetYear = null) {
-    try {
-      const year = targetYear || new Date().getFullYear();
-      const params = { year };
-      if (shopId && shopId !== 'all') params.shopId = shopId;
-      const [histRes, dailyReports] = await Promise.all([
-        ApiClient.get('/admin/targets/history', params),
-        this.getDailyReports()
-      ]);
-      const list = histRes?.data?.history || histRes?.data || (Array.isArray(histRes) ? histRes : []);
-      if (Array.isArray(list)) {
-        return list.map(item => this.enrichTargetWithDailyReports(item, dailyReports));
+  async getTargetHistory(shopId = null, targetYear = null, forceRefresh = false) {
+    const key = `targetHistory:${shopId || 'all'}:${targetYear || 'curr'}`;
+    return this._getOrFetch(key, 45000, async () => {
+      try {
+        const year = targetYear || new Date().getFullYear();
+        const params = { year };
+        if (shopId && shopId !== 'all') params.shopId = shopId;
+        const [histRes, dailyReports] = await Promise.all([
+          ApiClient.get('/admin/targets/history', params),
+          this.getDailyReports()
+        ]);
+        const list = histRes?.data?.history || histRes?.data || (Array.isArray(histRes) ? histRes : []);
+        if (Array.isArray(list)) {
+          return list.map(item => this.enrichTargetWithDailyReports(item, dailyReports));
+        }
+      } catch (err) {
+        console.warn('[Store] getTargetHistory error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getTargetHistory error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
-  async getMonthlyTargetData(shopId = 'all', year = null, month = null) {
+  async getMonthlyTargetData(shopId = 'all', year = null, month = null, forceRefresh = false) {
     const currentYear = year || new Date().getFullYear();
     const currentMonth = month || (new Date().getMonth() + 1);
+    const key = `monthlyTarget:${shopId || 'all'}:${currentYear}:${currentMonth}`;
 
-    const isAllShops = !shopId || shopId === 'all';
-    const [history, dailyReports, shops] = await Promise.all([
-      this.getTargetHistory(isAllShops ? null : shopId, currentYear),
-      this.getDailyReports(),
-      this.getShops()
-    ]);
+    return this._getOrFetch(key, 45000, async () => {
+      const isAllShops = !shopId || shopId === 'all';
+      const [history, dailyReports, shops] = await Promise.all([
+        this.getTargetHistory(isAllShops ? null : shopId, currentYear),
+        this.getDailyReports(),
+        this.getShops()
+      ]);
 
-    const matchingTargets = history.filter(t => t.targetYear === currentYear && t.targetMonth === currentMonth);
-    const now = new Date();
-    const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
-    const daysLeft = Math.max(0, lastDayOfMonth - now.getDate());
+      const matchingTargets = history.filter(t => t.targetYear === currentYear && t.targetMonth === currentMonth);
+      const now = new Date();
+      const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
+      const daysLeft = Math.max(0, lastDayOfMonth - now.getDate());
 
-    if (isAllShops) {
-      const revenueTarget = matchingTargets.reduce((s, t) => s + t.amountTarget, 0);
-      const tyreTarget = matchingTargets.reduce((s, t) => s + t.tyreTarget, 0);
+      if (isAllShops) {
+        const revenueTarget = matchingTargets.reduce((s, t) => s + t.amountTarget, 0);
+        const tyreTarget = matchingTargets.reduce((s, t) => s + t.tyreTarget, 0);
 
-      // Aggregate all daily reports for this month
-      let revenueAchieved = 0;
-      let tyreAchieved = 0;
-      let s4wEnqAchieved = 0;
-      let s2wAlignAchieved = 0;
-      let sWheelAlignAchieved = 0;
+        // Aggregate all daily reports for this month
+        let revenueAchieved = 0;
+        let tyreAchieved = 0;
+        let s4wEnqAchieved = 0;
+        let s2wAlignAchieved = 0;
+        let sWheelAlignAchieved = 0;
 
-      for (const r of dailyReports) {
-        const rDate = r.report_date || r.reportDate;
-        if (!rDate) continue;
-        const d = new Date(rDate);
-        if (d.getFullYear() === currentYear && (d.getMonth() + 1) === currentMonth) {
-          revenueAchieved += Number(r.amount || r.total_amount || 0);
-          const custTyres = Number(r.tyre_customer_quantity || r.tyreCustomerQuantity || 0);
-          const mechTyres = Number(r.tyre_mechanic_quantity || r.tyreMechanicQuantity || 0);
-          const above17 = Number(r.above_17_inch_customer_quantity || r.above17InchCustomerQuantity || 0) + Number(r.above_17_inch_mechanic_quantity || r.above17InchMechanicQuantity || 0);
-          // AFTER (4-Wheeler tyres only):
-          tyreAchieved += (custTyres + mechTyres);
+        for (const r of dailyReports) {
+          const rDate = r.report_date || r.reportDate;
+          if (!rDate) continue;
+          const d = new Date(rDate);
+          if (d.getFullYear() === currentYear && (d.getMonth() + 1) === currentMonth) {
+            revenueAchieved += Number(r.amount || r.total_amount || 0);
+            const custTyres = Number(r.tyre_customer_quantity || r.tyreCustomerQuantity || 0);
+            const mechTyres = Number(r.tyre_mechanic_quantity || r.tyreMechanicQuantity || 0);
+            // AFTER (4-Wheeler tyres only):
+            tyreAchieved += (custTyres + mechTyres);
 
-          s4wEnqAchieved += Number(r.two_wheeler_enquiry_customer_quantity || r.twoWheelerEnquiryCustomerQuantity || 0) + Number(r.two_wheeler_enquiry_mechanic_quantity || r.twoWheelerEnquiryMechanicQuantity || 0);
-          s2wAlignAchieved += Number(r.two_wheeler_alignment_customer_quantity || r.twoWheelerAlignmentCustomerQuantity || 0) + Number(r.two_wheeler_alignment_mechanic_quantity || r.twoWheelerAlignmentMechanicQuantity || 0);
-          sWheelAlignAchieved += Number(r.wheel_alignment_customer_quantity || r.wheelAlignmentCustomerQuantity || 0) + Number(r.wheel_alignment_mechanic_quantity || r.wheelAlignmentMechanicQuantity || 0);
+            s4wEnqAchieved += Number(r.two_wheeler_enquiry_customer_quantity || r.twoWheelerEnquiryCustomerQuantity || 0) + Number(r.two_wheeler_enquiry_mechanic_quantity || r.twoWheelerEnquiryMechanicQuantity || 0);
+            s2wAlignAchieved += Number(r.two_wheeler_alignment_customer_quantity || r.twoWheelerAlignmentCustomerQuantity || 0) + Number(r.two_wheeler_alignment_mechanic_quantity || r.twoWheelerAlignmentMechanicQuantity || 0);
+            sWheelAlignAchieved += Number(r.wheel_alignment_customer_quantity || r.wheelAlignmentCustomerQuantity || 0) + Number(r.wheel_alignment_mechanic_quantity || r.wheelAlignmentMechanicQuantity || 0);
+          }
         }
+
+        const s4wEnqTarget = matchingTargets.reduce((s, t) => s + t.fourWheelerEnquiryTarget, 0) || 25;
+        const s2wAlignTarget = matchingTargets.reduce((s, t) => s + t.twoWheelerAlignmentTarget, 0) || 25;
+        const sWheelAlignTarget = matchingTargets.reduce((s, t) => s + t.wheelAlignmentTarget, 0) || 25;
+
+        const revenuePercentage = revenueTarget > 0 ? parseFloat(((revenueAchieved / revenueTarget) * 100).toFixed(1)) : 0;
+        const tyrePercentage = tyreTarget > 0 ? parseFloat(((tyreAchieved / tyreTarget) * 100).toFixed(1)) : 0;
+
+        return {
+          id: 'all',
+          shopId: 'all',
+          shopName: 'All Shops',
+          period: `${new Date(currentYear, currentMonth - 1).toLocaleString('en-US', { month: 'long' })} ${currentYear}`,
+          month: new Date(currentYear, currentMonth - 1).toLocaleString('en-US', { month: 'long' }),
+          year: currentYear.toString(),
+          daysLeft,
+          revenueAchieved,
+          revenueTarget,
+          revenuePercentage,
+          tyreAchieved,
+          tyreTarget,
+          tyrePercentage,
+          services: [
+            { name: '2W Tyre', achieved: s4wEnqAchieved, target: s4wEnqTarget, percentage: Math.round((s4wEnqAchieved / s4wEnqTarget) * 100) },
+            { name: '2W Balancing', achieved: s2wAlignAchieved, target: s2wAlignTarget, percentage: Math.round((s2wAlignAchieved / s2wAlignTarget) * 100) },
+            { name: 'Wheel Alignment', achieved: sWheelAlignAchieved, target: sWheelAlignTarget, percentage: Math.round((sWheelAlignAchieved / sWheelAlignTarget) * 100) }
+          ]
+        };
       }
 
-      const s4wEnqTarget = matchingTargets.reduce((s, t) => s + t.fourWheelerEnquiryTarget, 0) || 25;
-      const s2wAlignTarget = matchingTargets.reduce((s, t) => s + t.twoWheelerAlignmentTarget, 0) || 25;
-      const sWheelAlignTarget = matchingTargets.reduce((s, t) => s + t.wheelAlignmentTarget, 0) || 25;
-
-      const revenuePercentage = revenueTarget > 0 ? parseFloat(((revenueAchieved / revenueTarget) * 100).toFixed(1)) : 0;
-      const tyrePercentage = tyreTarget > 0 ? parseFloat(((tyreAchieved / tyreTarget) * 100).toFixed(1)) : 0;
+      // Specific Shop
+      const shop = shops.find(s => (s.id || '').toString() === (shopId || '').toString());
+      const shopTarget = matchingTargets.find(t => (t.shopId || '').toString() === (shopId || '').toString()) || this.enrichTargetWithDailyReports({
+        shopId,
+        shopName: shop?.name || 'Shop',
+        targetYear: currentYear,
+        targetMonth: currentMonth,
+        amountTarget: 0,
+        tyreTarget: 0
+      }, dailyReports);
 
       return {
-        id: 'all',
-        shopId: 'all',
-        shopName: 'All Shops',
+        id: shopTarget.id || shopId,
+        shopId,
+        shopName: shopTarget.shopName || shop?.name || 'Shop',
         period: `${new Date(currentYear, currentMonth - 1).toLocaleString('en-US', { month: 'long' })} ${currentYear}`,
         month: new Date(currentYear, currentMonth - 1).toLocaleString('en-US', { month: 'long' }),
         year: currentYear.toString(),
         daysLeft,
-        revenueAchieved,
-        revenueTarget,
-        revenuePercentage,
-        tyreAchieved,
-        tyreTarget,
-        tyrePercentage,
+        revenueAchieved: shopTarget.achievedAmount,
+        revenueTarget: shopTarget.amountTarget,
+        amountTarget: shopTarget.amountTarget,
+        targetAmount: shopTarget.amountTarget,
+        revenuePercentage: shopTarget.amountPercentage,
+        tyreAchieved: shopTarget.achievedTyres,
+        tyreTarget: shopTarget.tyreTarget,
+        targetTyres: shopTarget.tyreTarget,
+        tyrePercentage: shopTarget.tyresPercentage,
+        twoWheelerEnquiryTarget: shopTarget.twoWheelerEnquiryTarget,
+        fourWheelerEnquiryTarget: shopTarget.fourWheelerEnquiryTarget,
+        twoWheelerAlignmentTarget: shopTarget.twoWheelerAlignmentTarget,
+        wheelAlignmentTarget: shopTarget.wheelAlignmentTarget,
+        commercialTyreTarget: shopTarget.commercialTyreTarget,
+        roWaterTarget: shopTarget.roWaterTarget,
+        above17InchTarget: shopTarget.above17InchTarget,
+        achieved4wEnq: shopTarget.achieved4wEnq,
+        achieved2wAlign: shopTarget.achieved2wAlign,
+        achievedWheelAlign: shopTarget.achievedWheelAlign,
+        achievedCommercial: shopTarget.achievedCommercial,
+        achievedRoWater: shopTarget.achievedRoWater,
+        achievedAbove17: shopTarget.achievedAbove17,
         services: [
-          { name: '2W Tyre', achieved: s4wEnqAchieved, target: s4wEnqTarget, percentage: Math.round((s4wEnqAchieved / s4wEnqTarget) * 100) },
-          { name: '2W Balancing', achieved: s2wAlignAchieved, target: s2wAlignTarget, percentage: Math.round((s2wAlignAchieved / s2wAlignTarget) * 100) },
-          { name: 'Wheel Alignment', achieved: sWheelAlignAchieved, target: sWheelAlignTarget, percentage: Math.round((sWheelAlignAchieved / sWheelAlignTarget) * 100) }
+          { name: '2W Tyre', achieved: shopTarget.achieved4wEnq, target: shopTarget.fourWheelerEnquiryTarget || 25, percentage: shopTarget.fourWheelerEnquiryTarget > 0 ? Math.round((shopTarget.achieved4wEnq / shopTarget.fourWheelerEnquiryTarget) * 100) : 0 },
+          { name: '2W Balancing', achieved: shopTarget.achieved2wAlign, target: shopTarget.twoWheelerAlignmentTarget || 25, percentage: shopTarget.twoWheelerAlignmentTarget > 0 ? Math.round((shopTarget.achieved2wAlign / shopTarget.twoWheelerAlignmentTarget) * 100) : 0 },
+          { name: 'Wheel Alignment', achieved: shopTarget.achievedWheelAlign, target: shopTarget.wheelAlignmentTarget || 25, percentage: shopTarget.wheelAlignmentTarget > 0 ? Math.round((shopTarget.achievedWheelAlign / shopTarget.wheelAlignmentTarget) * 100) : 0 }
         ]
       };
-    }
-
-    // Specific Shop
-    const shop = shops.find(s => (s.id || '').toString() === (shopId || '').toString());
-    const shopTarget = matchingTargets.find(t => (t.shopId || '').toString() === (shopId || '').toString()) || this.enrichTargetWithDailyReports({
-      shopId,
-      shopName: shop?.name || 'Shop',
-      targetYear: currentYear,
-      targetMonth: currentMonth,
-      amountTarget: 0,
-      tyreTarget: 0
-    }, dailyReports);
-
-    return {
-      id: shopTarget.id || shopId,
-      shopId,
-      shopName: shopTarget.shopName || shop?.name || 'Shop',
-      period: `${new Date(currentYear, currentMonth - 1).toLocaleString('en-US', { month: 'long' })} ${currentYear}`,
-      month: new Date(currentYear, currentMonth - 1).toLocaleString('en-US', { month: 'long' }),
-      year: currentYear.toString(),
-      daysLeft,
-      revenueAchieved: shopTarget.achievedAmount,
-      revenueTarget: shopTarget.amountTarget,
-      amountTarget: shopTarget.amountTarget,
-      targetAmount: shopTarget.amountTarget,
-      revenuePercentage: shopTarget.amountPercentage,
-      tyreAchieved: shopTarget.achievedTyres,
-      tyreTarget: shopTarget.tyreTarget,
-      targetTyres: shopTarget.tyreTarget,
-      tyrePercentage: shopTarget.tyresPercentage,
-      twoWheelerEnquiryTarget: shopTarget.twoWheelerEnquiryTarget,
-      fourWheelerEnquiryTarget: shopTarget.fourWheelerEnquiryTarget,
-      twoWheelerAlignmentTarget: shopTarget.twoWheelerAlignmentTarget,
-      wheelAlignmentTarget: shopTarget.wheelAlignmentTarget,
-      commercialTyreTarget: shopTarget.commercialTyreTarget,
-      roWaterTarget: shopTarget.roWaterTarget,
-      above17InchTarget: shopTarget.above17InchTarget,
-      achieved4wEnq: shopTarget.achieved4wEnq,
-      achieved2wAlign: shopTarget.achieved2wAlign,
-      achievedWheelAlign: shopTarget.achievedWheelAlign,
-      achievedCommercial: shopTarget.achievedCommercial,
-      achievedRoWater: shopTarget.achievedRoWater,
-      achievedAbove17: shopTarget.achievedAbove17,
-      services: [
-        { name: '2W Tyre', achieved: shopTarget.achieved4wEnq, target: shopTarget.fourWheelerEnquiryTarget || 25, percentage: shopTarget.fourWheelerEnquiryTarget > 0 ? Math.round((shopTarget.achieved4wEnq / shopTarget.fourWheelerEnquiryTarget) * 100) : 0 },
-        { name: '2W Balancing', achieved: shopTarget.achieved2wAlign, target: shopTarget.twoWheelerAlignmentTarget || 25, percentage: shopTarget.twoWheelerAlignmentTarget > 0 ? Math.round((shopTarget.achieved2wAlign / shopTarget.twoWheelerAlignmentTarget) * 100) : 0 },
-        { name: 'Wheel Alignment', achieved: shopTarget.achievedWheelAlign, target: shopTarget.wheelAlignmentTarget || 25, percentage: shopTarget.wheelAlignmentTarget > 0 ? Math.round((shopTarget.achievedWheelAlign / shopTarget.wheelAlignmentTarget) * 100) : 0 }
-      ]
-    };
+    }, forceRefresh);
   }
 
   async updateMonthlyTarget(shopId, targetAmount, targetTyres, serviceTargets = null, targetYear = null, targetMonth = null) {
@@ -891,6 +979,9 @@ class StoreClass {
         }
         throw err;
       });
+      this.invalidate('target');
+      this.invalidate('monthlyTarget');
+      this.invalidate('targetHistory');
       return res?.data || res;
     } catch (err) {
       console.warn('[Store] updateMonthlyTarget API error:', err.message);
@@ -901,97 +992,100 @@ class StoreClass {
   // ==========================================
   // 6. Daily Reports API
   // ==========================================
-  async getDailyReports(filterParams = {}) {
-    try {
-      let params = {};
-      let filterShopId = null;
-      if (typeof filterParams === 'string') {
-        params = { shopId: filterParams };
-        filterShopId = filterParams;
-      } else if (filterParams && typeof filterParams === 'object') {
-        params = { ...filterParams };
-        if (filterParams.shopId) filterShopId = filterParams.shopId;
-      }
-      const res = await ApiClient.get('/admin/daily-reports', params).catch(() =>
-        ApiClient.get('/daily-reports', params)
-      );
-      const list = res?.data?.reports || res?.data || res?.items || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        let mapped = list.map(r => {
-          const custTyres = Number(r.tyre_customer_quantity ?? r.tyreCustomerQuantity ?? 0);
-          const mechTyres = Number(r.tyre_mechanic_quantity ?? r.tyreMechanicQuantity ?? 0);
-          const above17Cust = Number(r.above_17_inch_customer_quantity ?? r.above17InchCustomerQuantity ?? 0);
-          const above17Mech = Number(r.above_17_inch_mechanic_quantity ?? r.above17InchMechanicQuantity ?? 0);
-          const above17Tyres = above17Cust + above17Mech;
-          const computedTyres = custTyres + mechTyres + above17Tyres;
-          const totalTyres = Number(r.totalTyres ?? r.total_tyres ?? computedTyres);
-
-          const twoWheelerCust = Number(r.two_wheeler_enquiry_customer_quantity ?? r.twoWheelerEnquiryCustomerQuantity ?? 0);
-          const twoWheelerMech = Number(r.two_wheeler_enquiry_mechanic_quantity ?? r.twoWheelerEnquiryMechanicQuantity ?? 0);
-
-          const wheelAlignCust = Number(r.wheel_alignment_customer_quantity ?? r.wheelAlignmentCustomerQuantity ?? 0);
-          const wheelAlignMech = Number(r.wheel_alignment_mechanic_quantity ?? r.wheelAlignmentMechanicQuantity ?? 0);
-
-          const twoWheelerAlignCust = Number(r.two_wheeler_alignment_customer_quantity ?? r.twoWheelerAlignmentCustomerQuantity ?? 0);
-          const twoWheelerAlignMech = Number(r.two_wheeler_alignment_mechanic_quantity ?? r.twoWheelerAlignmentMechanicQuantity ?? 0);
-
-          const commCust = Number(r.commercial_tyre_customer_quantity ?? r.commercialTyreCustomerQuantity ?? 0);
-          const commMech = Number(r.commercial_tyre_mechanic_quantity ?? r.commercialTyreMechanicQuantity ?? 0);
-
-          const roCust = Number(r.ro_water_customer_quantity ?? r.roWaterCustomerQuantity ?? 0);
-          const roMech = Number(r.ro_water_mechanic_quantity ?? r.roWaterMechanicQuantity ?? 0);
-
-          const patchQty = Number(r.tyre_patch_quantity ?? r.tyrePatchQuantity ?? 0);
-          const reviews = Number(r.google_review_count ?? r.googleReviewCount ?? 0);
-
-          const amount = Number(r.amount ?? r.total_amount ?? r.totalAmount ?? 0);
-
-          const services = Number(r.totalServices ?? r.total_services ?? (
-            twoWheelerAlignCust + twoWheelerAlignMech + wheelAlignCust + wheelAlignMech + roCust + roMech + patchQty
-          ));
-
-          return {
-            ...r,
-            shopId: (r.shopId || r.shop_id || '').toString(),
-            shop_id: (r.shop_id || r.shopId || '').toString(),
-            reportDate: r.reportDate || r.report_date || '',
-            report_date: r.report_date || r.reportDate || '',
-            amount,
-            total_amount: amount,
-            totalTyres,
-            total_tyres: totalTyres,
-            totalServices: services,
-            total_services: services,
-            tyreCustomerQuantity: custTyres,
-            tyreMechanicQuantity: mechTyres,
-            twoWheelerEnquiryCustomerQuantity: twoWheelerCust,
-            twoWheelerEnquiryMechanicQuantity: twoWheelerMech,
-            wheelAlignmentCustomerQuantity: wheelAlignCust,
-            wheelAlignmentMechanicQuantity: wheelAlignMech,
-            twoWheelerAlignmentCustomerQuantity: twoWheelerAlignCust,
-            twoWheelerAlignmentMechanicQuantity: twoWheelerAlignMech,
-            commercialTyreCustomerQuantity: commCust,
-            commercialTyreMechanicQuantity: commMech,
-            above17InchCustomerQuantity: above17Cust,
-            above17InchMechanicQuantity: above17Mech,
-            roWaterCustomerQuantity: roCust,
-            roWaterMechanicQuantity: roMech,
-            tyrePatchQuantity: patchQty,
-            googleReviewCount: reviews
-          };
-        });
-
-        if (filterShopId && filterShopId !== 'all') {
-          const filterStr = filterShopId.toString();
-          mapped = mapped.filter(r => r.shopId === filterStr);
+  async getDailyReports(filterParams = {}, forceRefresh = false) {
+    const cacheKey = `dailyReports:${typeof filterParams === 'string' ? filterParams : JSON.stringify(filterParams || {})}`;
+    return this._getOrFetch(cacheKey, 30000, async () => {
+      try {
+        let params = {};
+        let filterShopId = null;
+        if (typeof filterParams === 'string') {
+          params = { shopId: filterParams };
+          filterShopId = filterParams;
+        } else if (filterParams && typeof filterParams === 'object') {
+          params = { ...filterParams };
+          if (filterParams.shopId) filterShopId = filterParams.shopId;
         }
+        const res = await ApiClient.get('/admin/daily-reports', params).catch(() =>
+          ApiClient.get('/daily-reports', params)
+        );
+        const list = res?.data?.reports || res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          let mapped = list.map(r => {
+            const custTyres = Number(r.tyre_customer_quantity ?? r.tyreCustomerQuantity ?? 0);
+            const mechTyres = Number(r.tyre_mechanic_quantity ?? r.tyreMechanicQuantity ?? 0);
+            const above17Cust = Number(r.above_17_inch_customer_quantity ?? r.above17InchCustomerQuantity ?? 0);
+            const above17Mech = Number(r.above_17_inch_mechanic_quantity ?? r.above17InchMechanicQuantity ?? 0);
+            const above17Tyres = above17Cust + above17Mech;
+            const computedTyres = custTyres + mechTyres + above17Tyres;
+            const totalTyres = Number(r.totalTyres ?? r.total_tyres ?? computedTyres);
 
-        return mapped;
+            const twoWheelerCust = Number(r.two_wheeler_enquiry_customer_quantity ?? r.twoWheelerEnquiryCustomerQuantity ?? 0);
+            const twoWheelerMech = Number(r.two_wheeler_enquiry_mechanic_quantity ?? r.twoWheelerEnquiryMechanicQuantity ?? 0);
+
+            const wheelAlignCust = Number(r.wheel_alignment_customer_quantity ?? r.wheelAlignmentCustomerQuantity ?? 0);
+            const wheelAlignMech = Number(r.wheel_alignment_mechanic_quantity ?? r.wheelAlignmentMechanicQuantity ?? 0);
+
+            const twoWheelerAlignCust = Number(r.two_wheeler_alignment_customer_quantity ?? r.twoWheelerAlignmentCustomerQuantity ?? 0);
+            const twoWheelerAlignMech = Number(r.two_wheeler_alignment_mechanic_quantity ?? r.twoWheelerAlignmentMechanicQuantity ?? 0);
+
+            const commCust = Number(r.commercial_tyre_customer_quantity ?? r.commercialTyreCustomerQuantity ?? 0);
+            const commMech = Number(r.commercial_tyre_mechanic_quantity ?? r.commercialTyreMechanicQuantity ?? 0);
+
+            const roCust = Number(r.ro_water_customer_quantity ?? r.roWaterCustomerQuantity ?? 0);
+            const roMech = Number(r.ro_water_mechanic_quantity ?? r.roWaterMechanicQuantity ?? 0);
+
+            const patchQty = Number(r.tyre_patch_quantity ?? r.tyrePatchQuantity ?? 0);
+            const reviews = Number(r.google_review_count ?? r.googleReviewCount ?? 0);
+
+            const amount = Number(r.amount ?? r.total_amount ?? r.totalAmount ?? 0);
+
+            const services = Number(r.totalServices ?? r.total_services ?? (
+              twoWheelerAlignCust + twoWheelerAlignMech + wheelAlignCust + wheelAlignMech + roCust + roMech + patchQty
+            ));
+
+            return {
+              ...r,
+              shopId: (r.shopId || r.shop_id || '').toString(),
+              shop_id: (r.shop_id || r.shopId || '').toString(),
+              reportDate: r.reportDate || r.report_date || '',
+              report_date: r.report_date || r.reportDate || '',
+              amount,
+              total_amount: amount,
+              totalTyres,
+              total_tyres: totalTyres,
+              totalServices: services,
+              total_services: services,
+              tyreCustomerQuantity: custTyres,
+              tyreMechanicQuantity: mechTyres,
+              twoWheelerEnquiryCustomerQuantity: twoWheelerCust,
+              twoWheelerEnquiryMechanicQuantity: twoWheelerMech,
+              wheelAlignmentCustomerQuantity: wheelAlignCust,
+              wheelAlignmentMechanicQuantity: wheelAlignMech,
+              twoWheelerAlignmentCustomerQuantity: twoWheelerAlignCust,
+              twoWheelerAlignmentMechanicQuantity: twoWheelerAlignMech,
+              commercialTyreCustomerQuantity: commCust,
+              commercialTyreMechanicQuantity: commMech,
+              above17InchCustomerQuantity: above17Cust,
+              above17InchMechanicQuantity: above17Mech,
+              roWaterCustomerQuantity: roCust,
+              roWaterMechanicQuantity: roMech,
+              tyrePatchQuantity: patchQty,
+              googleReviewCount: reviews
+            };
+          });
+
+          if (filterShopId && filterShopId !== 'all') {
+            const filterStr = filterShopId.toString();
+            mapped = mapped.filter(r => r.shopId === filterStr);
+          }
+
+          return mapped;
+        }
+      } catch (err) {
+        console.warn('[Store] getDailyReports API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getDailyReports API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async saveDailyReport(reportData) {
@@ -1019,50 +1113,69 @@ class StoreClass {
     const res = await ApiClient.post('/admin/daily-reports', payload).catch(() =>
       ApiClient.post('/daily-reports', payload)
     );
+    this.invalidate('dailyReports');
+    this.invalidate('target');
+    this.invalidate('monthlyTarget');
+    this.invalidate('targetHistory');
+    this.invalidate('adminDashboard');
     return res?.data?.report || res?.data || res;
   }
 
   async updateDailyReport(reportData) {
-    return await ApiClient.put('/admin/daily-reports', reportData);
+    const res = await ApiClient.put('/admin/daily-reports', reportData);
+    this.invalidate('dailyReports');
+    this.invalidate('target');
+    this.invalidate('monthlyTarget');
+    this.invalidate('targetHistory');
+    this.invalidate('adminDashboard');
+    return res;
   }
 
   // ==========================================
   // 7. Master Data API
   // ==========================================
   // 7.1 Tyre Sizes
-  async getTyreSizes() {
-    try {
-      const res = await ApiClient.get('/admin/tyre-sizes').catch(() => ApiClient.get('/employee/tyre-sizes'));
-      const list = res?.data?.sizes || res?.data || res?.items || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        return list.map((s, idx) => ({
-          id: (s.id || s._id || `ts-${idx}`).toString(),
-          size: typeof s === 'string' ? s : (s.size || s.name || ''),
-          isActive: s.isActive !== undefined ? !!s.isActive : (s.is_active !== undefined ? !!s.is_active : true)
-        })).filter(s => !!s.size);
+  async getTyreSizes(forceRefresh = false) {
+    return this._getOrFetch('master:tyreSizes', 300000, async () => {
+      try {
+        const res = await ApiClient.get('/admin/tyre-sizes').catch(() => ApiClient.get('/employee/tyre-sizes'));
+        const list = res?.data?.sizes || res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          return list.map((s, idx) => ({
+            id: (s.id || s._id || `ts-${idx}`).toString(),
+            size: typeof s === 'string' ? s : (s.size || s.name || ''),
+            isActive: s.isActive !== undefined ? !!s.isActive : (s.is_active !== undefined ? !!s.is_active : true)
+          })).filter(s => !!s.size);
+        }
+      } catch (err) {
+        console.warn('[Store] getTyreSizes API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getTyreSizes API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async addTyreSize(sizeStr) {
     const res = await ApiClient.post('/admin/tyre-sizes', { size: sizeStr.trim() });
+    this.invalidate('master:tyreSizes');
     return res?.data || res;
   }
 
   async updateTyreSize(id, newSize) {
     const res = await ApiClient.patch(`/admin/tyre-sizes/${id}`, { size: newSize.trim() });
+    this.invalidate('master:tyreSizes');
     return res?.data || res;
   }
 
   async activateTyreSize(id) {
-    return await ApiClient.patch(`/admin/tyre-sizes/${id}/activate`);
+    const res = await ApiClient.patch(`/admin/tyre-sizes/${id}/activate`);
+    this.invalidate('master:tyreSizes');
+    return res;
   }
 
   async deactivateTyreSize(id) {
-    return await ApiClient.patch(`/admin/tyre-sizes/${id}/deactivate`);
+    const res = await ApiClient.patch(`/admin/tyre-sizes/${id}/deactivate`);
+    this.invalidate('master:tyreSizes');
+    return res;
   }
 
   async toggleTyreSize(id) {
@@ -1079,39 +1192,47 @@ class StoreClass {
   }
 
   // 7.2 Tyre Brands
-  async getTyreBrands() {
-    try {
-      const res = await ApiClient.get('/admin/tyre-brands').catch(() => ApiClient.get('/employee/tyre-brands'));
-      const list = res?.data?.brands || res?.data || res?.items || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        return list.map((b, idx) => ({
-          id: (b.id || b._id || `tb-${idx}`).toString(),
-          name: typeof b === 'string' ? b : (b.name || b.brandName || ''),
-          isActive: b.isActive !== undefined ? !!b.isActive : (b.is_active !== undefined ? !!b.is_active : true)
-        })).filter(b => !!b.name);
+  async getTyreBrands(forceRefresh = false) {
+    return this._getOrFetch('master:tyreBrands', 300000, async () => {
+      try {
+        const res = await ApiClient.get('/admin/tyre-brands').catch(() => ApiClient.get('/employee/tyre-brands'));
+        const list = res?.data?.brands || res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          return list.map((b, idx) => ({
+            id: (b.id || b._id || `tb-${idx}`).toString(),
+            name: typeof b === 'string' ? b : (b.name || b.brandName || ''),
+            isActive: b.isActive !== undefined ? !!b.isActive : (b.is_active !== undefined ? !!b.is_active : true)
+          })).filter(b => !!b.name);
+        }
+      } catch (err) {
+        console.warn('[Store] getTyreBrands API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getTyreBrands API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async addTyreBrand(nameStr) {
     const res = await ApiClient.post('/admin/tyre-brands', { name: nameStr.trim() });
+    this.invalidate('master:tyreBrands');
     return res?.data || res;
   }
 
   async updateTyreBrand(id, newName) {
     const res = await ApiClient.patch(`/admin/tyre-brands/${id}`, { name: newName.trim() });
+    this.invalidate('master:tyreBrands');
     return res?.data || res;
   }
 
   async activateTyreBrand(id) {
-    return await ApiClient.patch(`/admin/tyre-brands/${id}/activate`);
+    const res = await ApiClient.patch(`/admin/tyre-brands/${id}/activate`);
+    this.invalidate('master:tyreBrands');
+    return res;
   }
 
   async deactivateTyreBrand(id) {
-    return await ApiClient.patch(`/admin/tyre-brands/${id}/deactivate`);
+    const res = await ApiClient.patch(`/admin/tyre-brands/${id}/deactivate`);
+    this.invalidate('master:tyreBrands');
+    return res;
   }
 
   async toggleTyreBrand(id) {
@@ -1128,27 +1249,29 @@ class StoreClass {
   }
 
   // 7.3 Tyre Products
-  async getTyreProducts() {
-    try {
-      const res = await ApiClient.get('/admin/tyre-products').catch(() => ApiClient.get('/employee/tyre-products'));
-      const list = res?.data?.products || res?.data || res?.items || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        return list.map((p, idx) => ({
-          id: (p.id || p._id || `tp-${idx}`).toString(),
-          productName: p.productName || p.name || '',
-          price: Number(p.price || 0),
-          vehicleType: p.vehicleType || 'FOUR_WHEELER',
-          tyreSizeId: p.tyreSizeId || p.tyre_size_id || '',
-          tyreBrandId: p.tyreBrandId || p.tyre_brand_id || '',
-          tyreSize: p.tyreSize || p.size || '',
-          tyreBrand: p.tyreBrand || p.brand || '',
-          isActive: p.isActive !== undefined ? !!p.isActive : (p.is_active !== undefined ? !!p.is_active : true)
-        }));
+  async getTyreProducts(forceRefresh = false) {
+    return this._getOrFetch('master:tyreProducts', 300000, async () => {
+      try {
+        const res = await ApiClient.get('/admin/tyre-products').catch(() => ApiClient.get('/employee/tyre-products'));
+        const list = res?.data?.products || res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          return list.map((p, idx) => ({
+            id: (p.id || p._id || `tp-${idx}`).toString(),
+            productName: p.productName || p.name || '',
+            price: Number(p.price || 0),
+            vehicleType: p.vehicleType || 'FOUR_WHEELER',
+            tyreSizeId: p.tyreSizeId || p.tyre_size_id || '',
+            tyreBrandId: p.tyreBrandId || p.tyre_brand_id || '',
+            tyreSize: p.tyreSize || p.size || '',
+            tyreBrand: p.tyreBrand || p.brand || '',
+            isActive: p.isActive !== undefined ? !!p.isActive : (p.is_active !== undefined ? !!p.is_active : true)
+          }));
+        }
+      } catch (err) {
+        console.warn('[Store] getTyreProducts API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getTyreProducts API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async addTyreProduct(productData) {
@@ -1159,55 +1282,71 @@ class StoreClass {
       productName: productData.productName.trim(),
       price: parseFloat(productData.price) || 0
     };
-    return await ApiClient.post('/admin/tyre-products', payload);
+    const res = await ApiClient.post('/admin/tyre-products', payload);
+    this.invalidate('master:tyreProducts');
+    return res;
   }
 
   async updateTyreProduct(id, updates) {
-    return await ApiClient.patch(`/admin/tyre-products/${id}`, updates);
+    const res = await ApiClient.patch(`/admin/tyre-products/${id}`, updates);
+    this.invalidate('master:tyreProducts');
+    return res;
   }
 
   async activateTyreProduct(id) {
-    return await ApiClient.patch(`/admin/tyre-products/${id}/activate`);
+    const res = await ApiClient.patch(`/admin/tyre-products/${id}/activate`);
+    this.invalidate('master:tyreProducts');
+    return res;
   }
 
   async deactivateTyreProduct(id) {
-    return await ApiClient.patch(`/admin/tyre-products/${id}/deactivate`);
+    const res = await ApiClient.patch(`/admin/tyre-products/${id}/deactivate`);
+    this.invalidate('master:tyreProducts');
+    return res;
   }
 
   // 7.4 Car Brands
-  async getCarBrands() {
-    try {
-      const res = await ApiClient.get('/admin/car-brands').catch(() => ApiClient.get('/employee/car-brands'));
-      const list = res?.data?.brands || res?.data || res?.items || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        return list.map((b, idx) => ({
-          id: (b.id || b._id || `cb-${idx}`).toString(),
-          name: typeof b === 'string' ? b : (b.name || b.brand || ''),
-          isActive: b.isActive !== undefined ? !!b.isActive : (b.is_active !== undefined ? !!b.is_active : true)
-        })).filter(b => !!b.name);
+  async getCarBrands(forceRefresh = false) {
+    return this._getOrFetch('master:carBrands', 300000, async () => {
+      try {
+        const res = await ApiClient.get('/admin/car-brands').catch(() => ApiClient.get('/employee/car-brands'));
+        const list = res?.data?.brands || res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          return list.map((b, idx) => ({
+            id: (b.id || b._id || `cb-${idx}`).toString(),
+            name: typeof b === 'string' ? b : (b.name || b.brand || ''),
+            isActive: b.isActive !== undefined ? !!b.isActive : (b.is_active !== undefined ? !!b.is_active : true)
+          })).filter(b => !!b.name);
+        }
+      } catch (err) {
+        console.warn('[Store] getCarBrands API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getCarBrands API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async addCarBrand(nameStr) {
     const res = await ApiClient.post('/admin/car-brands', { name: nameStr.trim() });
+    this.invalidate('master:carBrands');
     return res?.data || res;
   }
 
   async updateCarBrand(id, newName) {
     const res = await ApiClient.patch(`/admin/car-brands/${id}`, { name: newName.trim() });
+    this.invalidate('master:carBrands');
     return res?.data || res;
   }
 
   async activateCarBrand(id) {
-    return await ApiClient.patch(`/admin/car-brands/${id}/activate`);
+    const res = await ApiClient.patch(`/admin/car-brands/${id}/activate`);
+    this.invalidate('master:carBrands');
+    return res;
   }
 
   async deactivateCarBrand(id) {
-    return await ApiClient.patch(`/admin/car-brands/${id}/deactivate`);
+    const res = await ApiClient.patch(`/admin/car-brands/${id}/deactivate`);
+    this.invalidate('master:carBrands');
+    return res;
   }
 
   async toggleCarBrand(id) {
@@ -1224,24 +1363,27 @@ class StoreClass {
   }
 
   // 7.5 Car Models
-  async getCarModels(brandId = null) {
-    try {
-      const params = brandId ? { brandId } : {};
-      const res = await ApiClient.get('/admin/car-models', params).catch(() => ApiClient.get('/employee/car-models', params));
-      const list = res?.data?.models || res?.data || res?.items || (Array.isArray(res) ? res : []);
-      if (Array.isArray(list)) {
-        return list.map((m, idx) => ({
-          id: (m.id || m._id || `cm-${idx}`).toString(),
-          name: typeof m === 'string' ? m : (m.name || m.model || ''),
-          brandId: m.brandId || m.brand_id || '',
-          brandName: m.brandName || m.brand || m.carBrand || '',
-          isActive: m.isActive !== undefined ? !!m.isActive : (m.is_active !== undefined ? !!m.is_active : true)
-        })).filter(m => !!m.name);
+  async getCarModels(brandId = null, forceRefresh = false) {
+    const key = `master:carModels:${brandId || 'all'}`;
+    return this._getOrFetch(key, 300000, async () => {
+      try {
+        const params = brandId ? { brandId } : {};
+        const res = await ApiClient.get('/admin/car-models', params).catch(() => ApiClient.get('/employee/car-models', params));
+        const list = res?.data?.models || res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list)) {
+          return list.map((m, idx) => ({
+            id: (m.id || m._id || `cm-${idx}`).toString(),
+            name: typeof m === 'string' ? m : (m.name || m.model || ''),
+            brandId: m.brandId || m.brand_id || '',
+            brandName: m.brandName || m.brand || m.carBrand || '',
+            isActive: m.isActive !== undefined ? !!m.isActive : (m.is_active !== undefined ? !!m.is_active : true)
+          })).filter(m => !!m.name);
+        }
+      } catch (err) {
+        console.warn('[Store] getCarModels API error:', err.message);
       }
-    } catch (err) {
-      console.warn('[Store] getCarModels API error:', err.message);
-    }
-    return [];
+      return [];
+    }, forceRefresh);
   }
 
   async addCarModel(nameStr, brandId) {
@@ -1250,6 +1392,7 @@ class StoreClass {
       brandId
     };
     const res = await ApiClient.post('/admin/car-models', payload);
+    this.invalidate('master:carModels');
     return res?.data || res;
   }
 
@@ -1257,15 +1400,20 @@ class StoreClass {
     const payload = { name: newName.trim() };
     if (brandId) payload.brandId = brandId;
     const res = await ApiClient.patch(`/admin/car-models/${id}`, payload);
+    this.invalidate('master:carModels');
     return res?.data || res;
   }
 
   async activateCarModel(id) {
-    return await ApiClient.patch(`/admin/car-models/${id}/activate`);
+    const res = await ApiClient.patch(`/admin/car-models/${id}/activate`);
+    this.invalidate('master:carModels');
+    return res;
   }
 
   async deactivateCarModel(id) {
-    return await ApiClient.patch(`/admin/car-models/${id}/deactivate`);
+    const res = await ApiClient.patch(`/admin/car-models/${id}/deactivate`);
+    this.invalidate('master:carModels');
+    return res;
   }
 
   async toggleCarModel(id) {

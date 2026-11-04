@@ -30,22 +30,23 @@ export async function renderReportPage(router, params = {}) {
   `;
 
   try {
-    const [shops, allEntries, dailyReports] = await Promise.all([
-      Store.getShops(),
-      Store.getEntries({ limit: 100 }),
-      Store.getDailyReports()
-    ]);
-
-    const nonDeletedEntries = allEntries.filter(e => !e.isDeleted);
-    const totalEnquiriesCount = nonDeletedEntries.length;
-
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const now = new Date();
     let currentYear = now.getFullYear();
     let currentMonth = now.getMonth() + 1; // 1-12
     const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
-    let targetHistory = await Store.getTargetHistory(null, currentYear).catch(() => []);
+    const [shops, allEntries, dailyReports, targetHistoryResult] = await Promise.all([
+      Store.getShops(),
+      Store.getEntries({ limit: 100 }),
+      Store.getDailyReports(),
+      Store.getTargetHistory(null, currentYear).catch(() => [])
+    ]);
+
+    const nonDeletedEntries = allEntries.filter(e => !e.isDeleted);
+    const totalEnquiriesCount = nonDeletedEntries.length;
+
+    let targetHistory = targetHistoryResult || [];
     let monthTargets = targetHistory.filter(t => Number(t.targetMonth) === currentMonth);
 
     // If shopId parameter exists in URL or was selected, render Single Shop 360 View
@@ -431,6 +432,10 @@ export async function renderReportPage(router, params = {}) {
         });
 
         singleEl.querySelector('#single-rep-refresh-btn')?.addEventListener('click', () => {
+          Store.invalidate('target');
+          Store.invalidate('dailyReports');
+          Store.invalidate('monthlyTarget');
+          Store.invalidate('targetHistory');
           Toast.show('Refreshing shop metrics...', 'info');
           updateShopContent();
         });
@@ -716,7 +721,7 @@ export async function renderReportPage(router, params = {}) {
 
             panelEl.querySelectorAll('.report-item-card').forEach(card => {
               card.addEventListener('click', () => {
-                const rep = currentMonthReports.find(r => r.id === card.dataset.id);
+                const rep = currentMonthReports.find(r => String(r.id || '') === String(card.dataset.id || ''));
                 if (rep) openDailyReportDetailsSheet(rep);
               });
             });
