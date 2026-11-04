@@ -654,6 +654,18 @@
   text-transform: uppercase;
 }
 
+.status-badge-overdue {
+  border: 1px solid #FECACA;
+  color: #DC2626;
+  background-color: #FEF2F2;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 2.5px 8.5px;
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .quick-action-btn {
   width: 34px;
   height: 34px;

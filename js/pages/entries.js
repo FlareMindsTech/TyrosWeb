@@ -223,15 +223,14 @@ export async function renderEntriesPage(router, params = {}) {
       } else if (activeFilter === 'overdue') {
         if (!e.isOverdue) return false;
       } else if (activeFilter === 'completed') {
-        if (e.status !== 'COMPLETED' || e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT') return false;
+        if ((e.status !== 'COMPLETED' && e.status !== 'WON') || e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT') return false;
       } else if (activeFilter === 'not_fitted') {
         // Not Fitted / Lost
         const isNotFit = e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.status === 'LOST';
         if (!isNotFit) return false;
       } else if (activeFilter === 'no_response') {
         // No Response
-        const isNoResp = e.status === 'NO_RESPONSE' || e.isNoResponse || e.is_no_response;
-        if (!isNoResp) return false;
+        if (!e.isNoResponse) return false;
       }
 
       // Search query (debounced)
@@ -741,11 +740,11 @@ export async function renderEntriesPage(router, params = {}) {
 
     // 2. Status counts specifically for this shop
     const countAll = shopBaseEntries.length;
-    const countCompleted = shopBaseEntries.filter(e => e.status === 'COMPLETED' && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT').length;
+    const countCompleted = shopBaseEntries.filter(e => (e.status === 'COMPLETED' || e.status === 'WON') && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT').length;
     const countPending = shopBaseEntries.filter(e => e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
     const countOverdue = shopBaseEntries.filter(e => e.isOverdue).length;
     const countNotFitted = shopBaseEntries.filter(e => e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.status === 'LOST').length;
-    const countNoResponse = shopBaseEntries.filter(e => e.status === 'NO_RESPONSE' || e.isNoResponse || e.is_no_response).length;
+    const countNoResponse = shopBaseEntries.filter(e => e.isNoResponse).length;
 
     // 3. Filter down based on active status filter pill and search query
     const filtered = getFilteredEntries(shopBaseEntries);
@@ -914,10 +913,12 @@ export async function renderEntriesPage(router, params = {}) {
         let badgeHtml = '';
         if (entry.fitStatus === 'NOT_FIT' || entry.fit_status === 'NOT_FIT' || entry.status === 'LOST') {
           badgeHtml = `<span class="status-badge-not-fitted">NOT FITTED</span>`;
-        } else if (entry.status === 'NO_RESPONSE' || entry.isNoResponse || entry.is_no_response) {
+        } else if (entry.isNoResponse) {
           badgeHtml = `<span class="status-badge-no-response">NO RESPONSE</span>`;
-        } else if (entry.status === 'COMPLETED') {
+        } else if (entry.status === 'COMPLETED' || entry.status === 'WON') {
           badgeHtml = `<span class="status-badge-completed">COMPLETED</span>`;
+        } else if (entry.isOverdue) {
+          badgeHtml = `<span class="status-badge-overdue">OVERDUE</span>`;
         } else {
           badgeHtml = `<span class="status-badge-pending">PENDING</span>`;
         }

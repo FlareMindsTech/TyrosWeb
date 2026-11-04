@@ -119,13 +119,33 @@ class StoreClass {
     const followUpDate = e.followUpDate || e.follow_up_date || new Date().toISOString();
     const dateText = e.dateText || (e.followUpDate || e.follow_up_date ? new Date(e.followUpDate || e.follow_up_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '');
     const isDeleted = e.isDeleted !== undefined ? !!e.isDeleted : (e.is_deleted !== undefined ? !!e.is_deleted : false);
-    const isNoResponse = !!e.isNoResponse || !!e.is_no_response || status === 'NO_RESPONSE';
+    const rawRemarks = (e.remarks || e.remark || e.lossReason || e.unfitReason || '').toString();
+    const normalizedRemarks = rawRemarks.toLowerCase();
+    const hasNoResponseKeyword = [
+      'no response',
+      'not reachable',
+      'no answer',
+      'not answering',
+      'switched off',
+      'unanswered',
+      'call cut',
+      'did not pick',
+      'not picked',
+      'call not answered',
+      'ringing',
+      'busy'
+    ].some(k => normalizedRemarks.includes(k));
+
+    const isExplicitNoResponse = !!e.isNoResponse || !!e.is_no_response || status === 'NO_RESPONSE' || status === 'NORESPONSE';
+    const isCompleted = status === 'COMPLETED' || status === 'WON';
+    const isNotFitted = fitStatus === 'NOT_FIT' || fitStatus === 'NOTFITTED' || status === 'LOST';
+    const isNoResponse = isExplicitNoResponse || (!isCompleted && !isNotFitted && hasNoResponseKeyword);
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const fDate = new Date(followUpDate);
     const isBeforeToday = fDate < today;
-    const isOverdue = (status !== 'COMPLETED' && fitStatus !== 'NOT_FIT' && !isNoResponse && isBeforeToday);
+    const isOverdue = (!isCompleted && !isNotFitted && !isNoResponse && isBeforeToday);
 
     return {
       ...e,
@@ -144,6 +164,7 @@ class StoreClass {
       fitStatus,
       followUpDate,
       dateText,
+      remarks: rawRemarks,
       isOverdue,
       isNoResponse,
       isDeleted
@@ -395,14 +416,30 @@ class StoreClass {
       let list = res?.data?.enquiries || res?.data || res?.items || (Array.isArray(res) ? res : []);
       if (!Array.isArray(list)) list = [];
 
-      // If more pages exist and no specific page was requested, fetch them
-      const totalPages = res?.data?.pagination?.totalPages || res?.pagination?.totalPages || 1;
-      if (totalPages > 1 && !params.page) {
-        for (let p = 2; p <= totalPages; p++) {
-          const nextRes = await ApiClient.get('/admin/enquiries', { ...params, page: p }).catch(() => null);
-          const nextList = nextRes?.data?.enquiries || nextRes?.data || [];
+      // Automatic pagination to load all records if no specific page was requested
+      if (!params.page) {
+        const pageSize = params.limit || 100;
+        const totalPages = res?.data?.pagination?.totalPages || res?.pagination?.totalPages || res?.pagination?.total_pages || null;
+        let currentPage = 1;
+        const maxPages = totalPages ? Math.min(totalPages, 50) : 50;
+
+        // If the first page returned full limit (meaning more pages might exist), paginate forward
+        while (currentPage < maxPages) {
+          if (!totalPages && list.length < (currentPage * pageSize)) {
+            break;
+          }
+          currentPage++;
+          const nextRes = await ApiClient.get('/admin/enquiries', { ...params, page: currentPage })
+            .catch(() => ApiClient.get('/employee/enquiries', { ...params, page: currentPage }))
+            .catch(() => null);
+          const nextList = nextRes?.data?.enquiries || nextRes?.data || nextRes?.items || [];
           if (Array.isArray(nextList) && nextList.length > 0) {
             list = list.concat(nextList);
+            if (nextList.length < pageSize) {
+              break; // Last page reached
+            }
+          } else {
+            break;
           }
         }
       }

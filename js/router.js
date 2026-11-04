@@ -9,7 +9,7 @@ export class HashRouter {
     this.routes = {
       '#/login': () => import('./pages/login.js?v=2.1.0').then(m => m.renderLoginPage),
       '#/dashboard': () => import('./pages/dashboard.js?v=2.1.0').then(m => m.renderDashboardPage),
-      '#/entries': () => import('./pages/entries.js?v=2.2.6').then(m => m.renderEntriesPage),
+      '#/entries': () => import('./pages/entries.js?v=2.2.7').then(m => m.renderEntriesPage),
       '#/report': () => import('./pages/report.js?v=2.1.0').then(m => m.renderReportPage),
       '#/manage': () => import('./pages/manage.js?v=2.2.0').then(m => m.renderManagePage),
       '#/profile': () => import('./pages/profile.js?v=2.1.0').then(m => m.renderProfilePage),
