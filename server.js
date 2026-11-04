@@ -5,7 +5,6 @@ const os = require('os');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = __dirname;
-
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
