@@ -138,8 +138,8 @@ class StoreClass {
 
     const isExplicitNoResponse = !!e.isNoResponse || !!e.is_no_response || status === 'NO_RESPONSE' || status === 'NORESPONSE';
     const isCompleted = status === 'COMPLETED' || status === 'WON';
-    const isNotFitted = fitStatus === 'NOT_FIT' || fitStatus === 'NOTFITTED' || status === 'LOST';
-    const isNoResponse = isExplicitNoResponse || (!isCompleted && !isNotFitted && hasNoResponseKeyword);
+    const isNoResponse = isExplicitNoResponse || (!isCompleted && hasNoResponseKeyword);
+    const isNotFitted = (fitStatus === 'NOT_FIT' || fitStatus === 'NOTFITTED' || status === 'LOST') && !isNoResponse;
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -167,6 +167,7 @@ class StoreClass {
       remarks: rawRemarks,
       isOverdue,
       isNoResponse,
+      isNotFitted,
       isDeleted
     };
   }
@@ -188,16 +189,16 @@ class StoreClass {
 
       // Recompute from loaded entries so dashboard numbers 100% match entries list and search (matching Flutter)
       const totalCust = nonDeleted.length > 0 ? new Set(nonDeleted.map(e => e.mobileNumber).filter(Boolean)).size : 31;
-      const pending = nonDeleted.filter(e => e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
+      const pending = nonDeleted.filter(e => e.status === 'PENDING' && !e.isNotFitted && !e.isNoResponse && !e.isOverdue).length;
       const overdue = nonDeleted.filter(e => e.isOverdue).length;
-      const completed = nonDeleted.filter(e => e.status === 'COMPLETED' && e.fitStatus !== 'NOT_FIT').length;
-      const notFitted = nonDeleted.filter(e => e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.status === 'LOST').length;
-      const noResponse = nonDeleted.filter(e => e.status === 'NO_RESPONSE' || e.isNoResponse || e.is_no_response).length;
+      const completed = nonDeleted.filter(e => (e.status === 'COMPLETED' || e.status === 'WON') && !e.isNotFitted && !e.isNoResponse).length;
+      const notFitted = nonDeleted.filter(e => e.isNotFitted).length;
+      const noResponse = nonDeleted.filter(e => e.isNoResponse).length;
 
       const shopPendingData = activeShops.map(shop => {
-        const pendingForShop = nonDeleted.filter(e => e.shopId === shop.id && e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
+        const pendingForShop = nonDeleted.filter(e => e.shopId === shop.id && e.status === 'PENDING' && !e.isNotFitted && !e.isNoResponse && !e.isOverdue).length;
         const totalForShop = nonDeleted.filter(e => e.shopId === shop.id).length;
-        const completedForShop = nonDeleted.filter(e => e.shopId === shop.id && e.status === 'COMPLETED' && e.fitStatus !== 'NOT_FIT').length;
+        const completedForShop = nonDeleted.filter(e => e.shopId === shop.id && (e.status === 'COMPLETED' || e.status === 'WON') && !e.isNotFitted && !e.isNoResponse).length;
         return {
           shopId: shop.id,
           shopName: shop.name,

@@ -219,15 +219,14 @@ export async function renderEntriesPage(router, params = {}) {
     return shopBaseEntries.filter(e => {
       // Status pill filter
       if (activeFilter === 'pending') {
-        if (e.status !== 'PENDING' || e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.isNoResponse || e.isOverdue) return false;
+        if (e.status !== 'PENDING' || e.isNotFitted || e.isNoResponse || e.isOverdue) return false;
       } else if (activeFilter === 'overdue') {
         if (!e.isOverdue) return false;
       } else if (activeFilter === 'completed') {
-        if ((e.status !== 'COMPLETED' && e.status !== 'WON') || e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT') return false;
+        if ((e.status !== 'COMPLETED' && e.status !== 'WON') || e.isNotFitted || e.isNoResponse) return false;
       } else if (activeFilter === 'not_fitted') {
-        // Not Fitted / Lost
-        const isNotFit = e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.status === 'LOST';
-        if (!isNotFit) return false;
+        // Not Fitted (strictly excludes No Response)
+        if (!e.isNotFitted) return false;
       } else if (activeFilter === 'no_response') {
         // No Response
         if (!e.isNoResponse) return false;
@@ -740,10 +739,10 @@ export async function renderEntriesPage(router, params = {}) {
 
     // 2. Status counts specifically for this shop
     const countAll = shopBaseEntries.length;
-    const countCompleted = shopBaseEntries.filter(e => (e.status === 'COMPLETED' || e.status === 'WON') && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT').length;
-    const countPending = shopBaseEntries.filter(e => e.status === 'PENDING' && e.fitStatus !== 'NOT_FIT' && e.fit_status !== 'NOT_FIT' && !e.isNoResponse && !e.isOverdue).length;
+    const countCompleted = shopBaseEntries.filter(e => (e.status === 'COMPLETED' || e.status === 'WON') && !e.isNotFitted && !e.isNoResponse).length;
+    const countPending = shopBaseEntries.filter(e => e.status === 'PENDING' && !e.isNotFitted && !e.isNoResponse && !e.isOverdue).length;
     const countOverdue = shopBaseEntries.filter(e => e.isOverdue).length;
-    const countNotFitted = shopBaseEntries.filter(e => e.fitStatus === 'NOT_FIT' || e.fit_status === 'NOT_FIT' || e.status === 'LOST').length;
+    const countNotFitted = shopBaseEntries.filter(e => e.isNotFitted).length;
     const countNoResponse = shopBaseEntries.filter(e => e.isNoResponse).length;
 
     // 3. Filter down based on active status filter pill and search query
@@ -909,12 +908,12 @@ export async function renderEntriesPage(router, params = {}) {
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
 
-        // Determine badge
+        // Determine badge (No Response takes top precedence per Flutter displayStatus)
         let badgeHtml = '';
-        if (entry.fitStatus === 'NOT_FIT' || entry.fit_status === 'NOT_FIT' || entry.status === 'LOST') {
-          badgeHtml = `<span class="status-badge-not-fitted">NOT FITTED</span>`;
-        } else if (entry.isNoResponse) {
+        if (entry.isNoResponse) {
           badgeHtml = `<span class="status-badge-no-response">NO RESPONSE</span>`;
+        } else if (entry.isNotFitted) {
+          badgeHtml = `<span class="status-badge-not-fitted">NOT FITTED</span>`;
         } else if (entry.status === 'COMPLETED' || entry.status === 'WON') {
           badgeHtml = `<span class="status-badge-completed">COMPLETED</span>`;
         } else if (entry.isOverdue) {
