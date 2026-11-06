@@ -641,14 +641,6 @@ export async function renderReportPage(router, params = {}) {
                       ${renderBreakdownRow('7. Water Wash', roCust, roMech, roTotal, roTarget)}
                       ${renderBreakdownRow('Google Review', revCust, revMech, revTotal, googleRevTarget)}
                     </tbody>
-                    <tfoot>
-                      <tr style="background:#FAF6EE; border-top:1px solid var(--border-default);">
-                        <td style="padding:13px 14px; font-size:13.5px; font-weight:700; color:var(--text-primary);">Grand Total</td>
-                        <td colspan="3" style="padding:13px 14px; text-align:right; font-weight:700; color:var(--accent); font-size:13.5px;">
-                          ${grandTyres} Tyres · ${grandServices} Services
-                        </td>
-                      </tr>
-                    </tfoot>
                   </table>
                 </div>
               </div>
@@ -1085,14 +1077,6 @@ export async function renderReportPage(router, params = {}) {
                       ${renderModalRow('7. Water Wash', roCust, roMech, roTotal)}
                       ${renderModalRow('Google Review', revCust, revMech, revTotal)}
                     </tbody>
-                    <tfoot>
-                      <tr style="background:#F4EFE6; border-top:1px solid #ECE5D8;">
-                        <td style="padding:12px 14px; font-size:13.5px; font-weight:700; color:#231F1C;">Grand Total</td>
-                        <td colspan="3" style="padding:12px 14px; text-align:right; font-weight:700; color:#D9531E; font-size:13.5px;">
-                          ${totalTyres} Tyres · ${totalServices} Services
-                        </td>
-                      </tr>
-                    </tfoot>
                   </table>
                 </div>
               </div>
