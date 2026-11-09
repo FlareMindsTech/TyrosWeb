@@ -1439,37 +1439,25 @@ class StoreClass {
         const res = await ApiClient.get('/admin/employee-productivity', filterParams);
         const data = res?.data || res || {};
         return {
-          dateRange: data.dateRange || {},
+          dateRange: data.period || data.dateRange || {},
           shopId: data.shopId || null,
           summary: data.summary || {
             totalEmployees: 0,
             activeEmployees: 0,
+            totalEmployeesActive: 0,
             totalFollowUps: 0,
             totalCompleted: 0,
             totalRescheduled: 0,
             totalNoResponse: 0,
+            totalNotFitted: 0,
             totalLost: 0,
             totalEnquiriesCreated: 0
           },
           employees: Array.isArray(data.employees) ? data.employees : []
         };
       } catch (err) {
-        console.warn('[Store] getEmployeeProductivity error:', err.message);
-        return {
-          dateRange: {},
-          shopId: null,
-          summary: {
-            totalEmployees: 0,
-            activeEmployees: 0,
-            totalFollowUps: 0,
-            totalCompleted: 0,
-            totalRescheduled: 0,
-            totalNoResponse: 0,
-            totalLost: 0,
-            totalEnquiriesCreated: 0
-          },
-          employees: []
-        };
+        console.error('[Store] getEmployeeProductivity error:', err);
+        throw err;
       }
     }, forceRefresh);
   }
@@ -1486,12 +1474,8 @@ class StoreClass {
           timeline: Array.isArray(data.timeline) ? data.timeline : []
         };
       } catch (err) {
-        console.warn('[Store] getEmployeeTimeline error:', err.message);
-        return {
-          employee: {},
-          dateRange: {},
-          timeline: []
-        };
+        console.error('[Store] getEmployeeTimeline error:', err);
+        throw err;
       }
     }, forceRefresh);
   }

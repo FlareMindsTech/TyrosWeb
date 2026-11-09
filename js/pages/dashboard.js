@@ -489,6 +489,242 @@ export function renderDashboardPage(router) {
       return params;
     }
 
+    function formatDatePretty(ymd) {
+      if (!ymd) return '';
+      const parts = ymd.split('-');
+      if (parts.length !== 3) return ymd;
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const mIdx = parseInt(parts[1], 10) - 1;
+      return `${parseInt(parts[2], 10)} ${months[mIdx] || ''} ${parts[0]}`;
+    }
+
+    function getCustomPillLabel() {
+      if (empActivePreset !== 'custom') return '📅 Calendar';
+      if (!empCustomStart && !empCustomEnd) return '📅 Calendar';
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const sParts = (empCustomStart || '').split('-');
+      const eParts = (empCustomEnd || '').split('-');
+      if (empCustomStart === empCustomEnd) {
+        return `📅 ${parseInt(sParts[2], 10)} ${months[parseInt(sParts[1], 10) - 1] || ''}`;
+      }
+      return `📅 ${parseInt(sParts[2], 10)} ${months[parseInt(sParts[1], 10) - 1] || ''} – ${parseInt(eParts[2], 10)} ${months[parseInt(eParts[1], 10) - 1] || ''}`;
+    }
+
+    function openProductivityCalendarSheet() {
+      let calViewDate = empCustomStart ? new Date(empCustomStart + 'T00:00:00') : new Date();
+      if (isNaN(calViewDate.getTime())) calViewDate = new Date();
+      let calRangeStart = empCustomStart || getTodayString();
+      let calRangeEnd = empCustomEnd || calRangeStart;
+      let isSelectingRange = false;
+
+      const calContainer = document.createElement('div');
+      calContainer.className = 'cal-modal-wrap';
+
+      function renderCalView() {
+        const year = calViewDate.getFullYear();
+        const month = calViewDate.getMonth();
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const monthTitle = `${monthNames[month]} ${year}`;
+
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const todayYMD = getTodayString();
+
+        const startYMD = calRangeStart <= calRangeEnd ? calRangeStart : calRangeEnd;
+        const endYMD = calRangeStart <= calRangeEnd ? calRangeEnd : calRangeStart;
+
+        const isSame = startYMD === endYMD;
+        const rangeText = isSame ? formatDatePretty(startYMD) : `${formatDatePretty(startYMD)} – ${formatDatePretty(endYMD)}`;
+
+        calContainer.innerHTML = `
+          <!-- Month Navigation Bar -->
+          <div class="cal-nav-bar">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button id="cal-prev-btn" class="cal-nav-btn" type="button" title="Previous Month">◀</button>
+              <span class="cal-month-title">${monthTitle}</span>
+              <button id="cal-next-btn" class="cal-nav-btn" type="button" title="Next Month">▶</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button id="cal-today-btn" class="cal-today-btn" type="button" title="Jump to Today">Today</button>
+            </div>
+          </div>
+
+          <!-- Quick Range Presets -->
+          <div class="cal-presets-bar">
+            <button type="button" class="cal-preset-btn" id="preset-today">Today</button>
+            <button type="button" class="cal-preset-btn" id="preset-yesterday">Yesterday</button>
+            <button type="button" class="cal-preset-btn" id="preset-this-week">This Week</button>
+            <button type="button" class="cal-preset-btn" id="preset-this-month">This Month</button>
+            <button type="button" class="cal-preset-btn" id="preset-last-7">Last 7 Days</button>
+            <button type="button" class="cal-preset-btn" id="preset-whole-month">Whole Month (1–${daysInMonth})</button>
+          </div>
+
+          <!-- Selection Guidance Notice -->
+          <div style="font-size:12px; color:${isSelectingRange ? 'var(--accent)' : 'var(--text-muted)'}; text-align:center; padding:4px 0; font-weight:${isSelectingRange ? '700' : '500'};">
+            ${isSelectingRange ? '👉 Now click a second date to complete the range' : '💡 Click any date to select, or click a start & end date for a range'}
+          </div>
+
+          <!-- Weekdays Header -->
+          <div class="cal-weekdays">
+            <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
+          </div>
+
+          <!-- Days Grid -->
+          <div id="cal-grid" class="cal-grid"></div>
+
+          <!-- Selected Range Summary & Apply Action -->
+          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-paper); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); padding:12px 16px; margin-top:8px;">
+            <div>
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Selected Period</div>
+              <div style="font-size:14px; font-weight:700; color:var(--text-primary); margin-top:2px;">📅 ${rangeText}</div>
+            </div>
+            <button id="cal-apply-btn" type="button" class="btn-primary" style="height:36px; padding:0 20px; font-size:13px; font-weight:700; border-radius:var(--radius-pill);">
+              Apply Range
+            </button>
+          </div>
+        `;
+
+        // Fill Grid
+        const gridEl = calContainer.querySelector('#cal-grid');
+        for (let i = 0; i < firstDay; i++) {
+          const blank = document.createElement('div');
+          blank.className = 'cal-cell is-blank';
+          gridEl.appendChild(blank);
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const thisYMD = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          const isStart = thisYMD === startYMD;
+          const isEnd = thisYMD === endYMD;
+          const isSingle = isStart && isEnd;
+          const isInRange = thisYMD > startYMD && thisYMD < endYMD;
+          const isToday = thisYMD === todayYMD;
+
+          let cellClasses = 'cal-cell';
+          if (isSingle) {
+            cellClasses += ' is-selected is-range-start is-range-end';
+          } else if (isStart) {
+            cellClasses += ' is-range-start';
+          } else if (isEnd) {
+            cellClasses += ' is-range-end';
+          } else if (isInRange) {
+            cellClasses += ' is-in-range';
+          }
+          if (isToday) cellClasses += ' is-today';
+
+          const cell = document.createElement('div');
+          cell.className = cellClasses;
+          cell.innerHTML = `<span>${day}</span>`;
+
+          cell.addEventListener('click', () => {
+            if (!isSelectingRange) {
+              calRangeStart = thisYMD;
+              calRangeEnd = thisYMD;
+              isSelectingRange = true;
+            } else {
+              if (thisYMD < calRangeStart) {
+                calRangeEnd = calRangeStart;
+                calRangeStart = thisYMD;
+              } else {
+                calRangeEnd = thisYMD;
+              }
+              isSelectingRange = false;
+            }
+            renderCalView();
+          });
+
+          gridEl.appendChild(cell);
+        }
+
+        // Navigation listeners
+        calContainer.querySelector('#cal-prev-btn')?.addEventListener('click', () => {
+          calViewDate.setMonth(calViewDate.getMonth() - 1);
+          renderCalView();
+        });
+
+        calContainer.querySelector('#cal-next-btn')?.addEventListener('click', () => {
+          calViewDate.setMonth(calViewDate.getMonth() + 1);
+          renderCalView();
+        });
+
+        calContainer.querySelector('#cal-today-btn')?.addEventListener('click', () => {
+          calViewDate = new Date();
+          const t = getTodayString();
+          calRangeStart = t;
+          calRangeEnd = t;
+          isSelectingRange = false;
+          renderCalView();
+        });
+
+        // Presets
+        calContainer.querySelector('#preset-today')?.addEventListener('click', () => {
+          const t = getTodayString();
+          calRangeStart = t;
+          calRangeEnd = t;
+          isSelectingRange = false;
+          renderCalView();
+        });
+
+        calContainer.querySelector('#preset-yesterday')?.addEventListener('click', () => {
+          const y = getYesterdayString();
+          calRangeStart = y;
+          calRangeEnd = y;
+          isSelectingRange = false;
+          renderCalView();
+        });
+
+        calContainer.querySelector('#preset-this-week')?.addEventListener('click', () => {
+          const w = getThisWeekRange();
+          calRangeStart = w.startDate;
+          calRangeEnd = w.endDate;
+          isSelectingRange = false;
+          renderCalView();
+        });
+
+        calContainer.querySelector('#preset-this-month')?.addEventListener('click', () => {
+          const m = getThisMonthRange();
+          calRangeStart = m.startDate;
+          calRangeEnd = m.endDate;
+          isSelectingRange = false;
+          renderCalView();
+        });
+
+        calContainer.querySelector('#preset-last-7')?.addEventListener('click', () => {
+          const now = new Date();
+          const past = new Date(now);
+          past.setDate(now.getDate() - 6);
+          calRangeStart = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`;
+          calRangeEnd = getTodayString();
+          isSelectingRange = false;
+          renderCalView();
+        });
+
+        calContainer.querySelector('#preset-whole-month')?.addEventListener('click', () => {
+          calRangeStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+          calRangeEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+          isSelectingRange = false;
+          renderCalView();
+        });
+
+        // Apply
+        calContainer.querySelector('#cal-apply-btn')?.addEventListener('click', () => {
+          empActivePreset = 'custom';
+          empCustomStart = calRangeStart <= calRangeEnd ? calRangeStart : calRangeEnd;
+          empCustomEnd = calRangeStart <= calRangeEnd ? calRangeEnd : calRangeStart;
+          Sheet.close();
+          fetchAndRenderProductivity(false);
+        });
+      }
+
+      renderCalView();
+
+      Sheet.open({
+        title: '📅 Select Date Range',
+        subtitle: 'Click dates on the calendar to filter employee productivity',
+        contentEl: calContainer
+      });
+    }
+
     function openEmployeeActivityDrawer(employeeId, employeeName, employeePhone) {
       const timelineParams = getProductivityParams();
       let dateLabel = 'Today';
@@ -538,7 +774,7 @@ export function renderDashboardPage(router) {
 
                 <div class="emp-timeline-track">
                   ${timeline.map(item => {
-                    const d = new Date(item.timestamp || Date.now());
+                    const d = new Date(item.created_at || item.timestamp || Date.now());
                     const timeStr = !isNaN(d.getTime())
                       ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
                       : '';
@@ -546,14 +782,16 @@ export function renderDashboardPage(router) {
                       ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
                       : '';
 
-                    const actionType = (item.actionType || item.action || item.newStatus || '').toUpperCase();
+                    const prevVal = item.old_value || item.previousStatus || '';
+                    const newVal = item.new_value || item.newStatus || item.action || 'UPDATED';
+                    const actionType = (newVal || item.action || '').toUpperCase();
                     let badgeClass = 'emp-badge-neutral';
                     let timelineColor = 'var(--accent)';
 
                     if (actionType.includes('COMPLETED') || actionType.includes('WON') || actionType.includes('FIT')) {
                       badgeClass = 'emp-badge-green';
                       timelineColor = '#16A34A';
-                    } else if (actionType.includes('RESCHEDULED') || actionType.includes('LATER')) {
+                    } else if (actionType.includes('RESCHEDULED') || actionType.includes('LATER') || (actionType === 'PENDING' && prevVal)) {
                       badgeClass = 'emp-badge-yellow';
                       timelineColor = '#D97706';
                     } else if (actionType.includes('NO_RESPONSE') || actionType.includes('UNREACHABLE')) {
@@ -567,11 +805,17 @@ export function renderDashboardPage(router) {
                       timelineColor = '#2563EB';
                     }
 
-                    const statusTransition = item.previousStatus && item.newStatus
-                      ? `${item.previousStatus} ➔ ${item.newStatus}`
-                      : (item.newStatus || item.actionType || item.action || 'UPDATED');
+                    const statusTransition = prevVal && newVal && prevVal !== newVal
+                      ? `${prevVal} ➔ ${newVal}`
+                      : (newVal || item.action || 'UPDATED');
 
-                    const enq = item.enquiry || {};
+                    const custName = item.customer_name || item.enquiry?.customerName || item.customerName || '';
+                    const custPhone = item.customer_phone || item.enquiry?.customerPhone || item.customerPhone || '';
+                    const vehReg = item.vehicle_reg || item.enquiry?.vehicleReg || item.vehicleReg || '';
+                    const vehModel = item.vehicle_model || item.enquiry?.vehicleModel || item.vehicleModel || '';
+                    const shopName = item.shop_name || item.enquiry?.shopName || item.shopName || '';
+                    const tyreBrand = item.tyre_brand || item.enquiry?.tyreBrand || '';
+                    const tyreSize = item.tyre_size || item.enquiry?.tyreSize || '';
 
                     return `
                       <div class="emp-timeline-item" style="--timeline-color: ${timelineColor};">
@@ -582,20 +826,20 @@ export function renderDashboardPage(router) {
                             <span class="emp-timeline-badge ${badgeClass}">${UI.escape(statusTransition)}</span>
                           </div>
 
-                          ${(enq.customerName || enq.customerPhone || enq.vehicleReg || enq.vehicleModel || enq.tyreBrand) ? `
+                          ${(custName || custPhone || vehReg || vehModel || tyreBrand) ? `
                             <div class="emp-timeline-customer">
                               <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <strong style="color:var(--text-primary); font-size:13.5px;">${UI.escape(enq.customerName || 'Customer')}</strong>
-                                ${enq.customerPhone ? `
-                                  <a href="tel:${enq.customerPhone}" style="color:var(--accent); text-decoration:none; font-weight:600; font-size:12px;">
-                                    📞 ${UI.escape(enq.customerPhone)}
+                                <strong style="color:var(--text-primary); font-size:13.5px;">${UI.escape(custName || 'Customer')}</strong>
+                                ${custPhone ? `
+                                  <a href="tel:${custPhone}" style="color:var(--accent); text-decoration:none; font-weight:600; font-size:12px;">
+                                    📞 ${UI.escape(custPhone)}
                                   </a>
                                 ` : ''}
                               </div>
                               <div style="font-size:12px; color:var(--text-muted); margin-top:3px; display:flex; flex-wrap:wrap; gap:8px;">
-                                ${enq.vehicleReg || enq.vehicleModel ? `<span>🚗 ${UI.escape(enq.vehicleReg || '')} ${enq.vehicleModel ? `(${UI.escape(enq.vehicleModel)})` : ''}</span>` : ''}
-                                ${enq.tyreBrand || enq.tyreSize ? `<span>🛞 ${UI.escape(enq.tyreBrand || '')} ${UI.escape(enq.tyreSize || '')}</span>` : ''}
-                                ${enq.shopName ? `<span>📍 ${UI.escape(enq.shopName)}</span>` : ''}
+                                ${vehReg || vehModel ? `<span>🚗 ${UI.escape(vehReg)} ${vehModel ? `(${UI.escape(vehModel)})` : ''}</span>` : ''}
+                                ${tyreBrand || tyreSize ? `<span>🛞 ${UI.escape(tyreBrand)} ${UI.escape(tyreSize)}</span>` : ''}
+                                ${shopName ? `<span>📍 ${UI.escape(shopName)}</span>` : ''}
                               </div>
                             </div>
                           ` : ''}
@@ -671,21 +915,15 @@ export function renderDashboardPage(router) {
 
             <!-- Filter Bar -->
             <div class="emp-prod-filter-bar">
-              <!-- Preset Pills -->
+              <!-- Preset Pills with Calendar Date Picker -->
               <div class="emp-preset-group">
                 <button class="emp-filter-pill ${empActivePreset === 'today' ? 'active' : ''}" data-preset="today">Today</button>
                 <button class="emp-filter-pill ${empActivePreset === 'yesterday' ? 'active' : ''}" data-preset="yesterday">Yesterday</button>
                 <button class="emp-filter-pill ${empActivePreset === 'thisWeek' ? 'active' : ''}" data-preset="thisWeek">This Week</button>
                 <button class="emp-filter-pill ${empActivePreset === 'thisMonth' ? 'active' : ''}" data-preset="thisMonth">This Month</button>
-                <button class="emp-filter-pill ${empActivePreset === 'custom' ? 'active' : ''}" data-preset="custom">Custom</button>
-              </div>
-
-              <!-- Custom Date Pickers -->
-              <div class="emp-custom-dates-wrap ${empActivePreset === 'custom' ? 'visible' : ''}">
-                <input type="date" id="emp-custom-start" class="emp-date-input" value="${empCustomStart}">
-                <span style="font-size:12px; color:var(--text-muted);">to</span>
-                <input type="date" id="emp-custom-end" class="emp-date-input" value="${empCustomEnd}">
-                <button id="emp-custom-apply-btn" class="emp-filter-pill active" style="padding:4px 10px;">Apply</button>
+                <button id="emp-calendar-pill" class="emp-filter-pill ${empActivePreset === 'custom' ? 'active' : ''}" data-preset="custom" title="Click to choose custom dates on calendar">
+                  ${getCustomPillLabel()}
+                </button>
               </div>
 
               <!-- Workshop Dropdown -->
@@ -709,17 +947,17 @@ export function renderDashboardPage(router) {
 
             <!-- Top KPI Summary Cards -->
             <div class="emp-prod-kpi-grid">
-              <!-- 1. Total Follow-Ups -->
+              <!-- 1. Total Follow-ups -->
               <div class="emp-kpi-card" style="--kpi-color: #475569;">
                 <div class="emp-kpi-label">
                   <span class="emp-kpi-dot"></span>
-                  <span>Total Calls</span>
+                  <span>Total Follow-ups</span>
                 </div>
                 <div class="emp-kpi-num count-up" data-target="${summary.totalFollowUps || 0}">0</div>
-                <div class="emp-kpi-sub">${summary.activeEmployees || 0} active / ${summary.totalEmployees || 0} staff</div>
+                <div class="emp-kpi-sub">${summary.totalEmployeesActive ?? summary.activeEmployees ?? 0} active / ${summary.totalEmployees || 0} staff</div>
               </div>
 
-              <!-- 2. Completed / Fitted -->
+              <!-- 2. Completed -->
               <div class="emp-kpi-card" style="--kpi-color: #16A34A;">
                 <div class="emp-kpi-label">
                   <span class="emp-kpi-dot"></span>
@@ -749,40 +987,40 @@ export function renderDashboardPage(router) {
                 <div class="emp-kpi-sub" style="color:#7C3AED; font-weight:600;">Unreachable</div>
               </div>
 
-              <!-- 5. Lost / Not Fitted -->
+              <!-- 5. Not Fitted -->
               <div class="emp-kpi-card" style="--kpi-color: #DC2626;">
                 <div class="emp-kpi-label">
                   <span class="emp-kpi-dot"></span>
-                  <span>Lost</span>
+                  <span>Not Fitted</span>
                 </div>
-                <div class="emp-kpi-num count-up" data-target="${summary.totalLost || 0}">0</div>
-                <div class="emp-kpi-sub" style="color:#DC2626; font-weight:600;">Not Fitted</div>
+                <div class="emp-kpi-num count-up" data-target="${summary.totalNotFitted ?? summary.totalLost ?? 0}">0</div>
+                <div class="emp-kpi-sub" style="color:#DC2626; font-weight:600;">Lost / Unfit</div>
               </div>
 
-              <!-- 6. New Leads Created -->
+              <!-- 6. Enquiries Created -->
               <div class="emp-kpi-card" style="--kpi-color: #2563EB;">
                 <div class="emp-kpi-label">
                   <span class="emp-kpi-dot"></span>
-                  <span>Leads Created</span>
+                  <span>Enquiries Created</span>
                 </div>
                 <div class="emp-kpi-num count-up" data-target="${summary.totalEnquiriesCreated || 0}">0</div>
-                <div class="emp-kpi-sub" style="color:#2563EB; font-weight:600;">New Enquiries</div>
+                <div class="emp-kpi-sub" style="color:#2563EB; font-weight:600;">New Leads</div>
               </div>
             </div>
 
-            <!-- Employee Performance Table -->
+            <!-- Employee Performance Table (Exact Admin UI Spec) -->
             <div class="emp-prod-table-wrap">
               <table class="emp-prod-table">
                 <thead>
                   <tr>
                     <th>Employee Name</th>
-                    <th>Workshop</th>
-                    <th class="text-center">Total Calls</th>
+                    <th>Shop</th>
+                    <th class="text-center">Total Follow-ups</th>
                     <th class="text-center">Completed</th>
                     <th class="text-center">Rescheduled</th>
                     <th class="text-center">No Response</th>
-                    <th class="text-center">Lost</th>
-                    <th class="text-center">Leads Created</th>
+                    <th class="text-center">Not Fitted</th>
+                    <th class="text-center">Enquiries Created</th>
                     <th class="text-right">Action</th>
                   </tr>
                 </thead>
@@ -810,13 +1048,13 @@ export function renderDashboardPage(router) {
                             <div class="emp-avatar">${initials}</div>
                             <div class="emp-user-info">
                               <span class="emp-user-name">${UI.escape(emp.employeeName || 'Employee')}</span>
-                              <span class="emp-user-phone">${UI.escape(emp.employeePhone || 'No phone')}</span>
+                              <span class="emp-user-phone">${UI.escape(emp.phone || emp.employeePhone || 'No phone')}</span>
                             </div>
                           </div>
                         </td>
                         <td>
                           <span style="font-weight:600; color:var(--text-secondary); font-size:12.5px;">
-                            ${UI.escape(emp.shopName || 'Workshop')}
+                            ${UI.escape(emp.shopName || 'Shop')}
                           </span>
                         </td>
                         <td class="text-center">
@@ -832,16 +1070,16 @@ export function renderDashboardPage(router) {
                           <span class="emp-metric-badge emp-badge-purple">${m.noResponse || 0}</span>
                         </td>
                         <td class="text-center">
-                          <span class="emp-metric-badge emp-badge-red">${m.lost || 0}</span>
+                          <span class="emp-metric-badge emp-badge-red">${m.notFitted ?? m.lost ?? 0}</span>
                         </td>
                         <td class="text-center">
-                          <span class="emp-metric-badge emp-badge-blue">${m.enquiriesCreated || 0}</span>
+                          <span class="emp-metric-badge emp-badge-blue">${m.enquiriesCreated ?? 0}</span>
                         </td>
                         <td class="text-right">
                           <button class="btn-view-activity" 
-                            data-emp-id="${emp.employeeId}" 
+                            data-emp-id="${emp.employeeId || emp.id}" 
                             data-emp-name="${UI.escape(emp.employeeName || 'Employee')}"
-                            data-emp-phone="${UI.escape(emp.employeePhone || '')}">
+                            data-emp-phone="${UI.escape(emp.phone || emp.employeePhone || '')}">
                             👁️ View Activity
                           </button>
                         </td>
@@ -864,27 +1102,13 @@ export function renderDashboardPage(router) {
         containerEl.querySelectorAll('.emp-filter-pill[data-preset]').forEach(btn => {
           btn.addEventListener('click', () => {
             const preset = btn.dataset.preset;
-            empActivePreset = preset;
-            if (preset !== 'custom') {
-              fetchAndRenderProductivity(false);
+            if (preset === 'custom') {
+              openProductivityCalendarSheet();
             } else {
-              containerEl.querySelector('.emp-custom-dates-wrap')?.classList.add('visible');
-              containerEl.querySelectorAll('.emp-filter-pill[data-preset]').forEach(b => b.classList.remove('active'));
-              btn.classList.add('active');
+              empActivePreset = preset;
+              fetchAndRenderProductivity(false);
             }
           });
-        });
-
-        containerEl.querySelector('#emp-custom-apply-btn')?.addEventListener('click', () => {
-          const startVal = containerEl.querySelector('#emp-custom-start')?.value;
-          const endVal = containerEl.querySelector('#emp-custom-end')?.value;
-          if (startVal && endVal) {
-            empCustomStart = startVal;
-            empCustomEnd = endVal;
-            fetchAndRenderProductivity(false);
-          } else {
-            Toast.warning('Please select start and end dates.');
-          }
         });
 
         containerEl.querySelector('#emp-shop-select')?.addEventListener('change', (e) => {

@@ -8,7 +8,7 @@ export class HashRouter {
     this.container = null;
     this.routes = {
       '#/login': () => import('./pages/login.js?v=2.5.0').then(m => m.renderLoginPage),
-      '#/dashboard': () => import('./pages/dashboard.js?v=2.5.0').then(m => m.renderDashboardPage),
+      '#/dashboard': () => import('./pages/dashboard.js?v=2.6.3').then(m => m.renderDashboardPage),
       '#/entries': () => import('./pages/entries.js?v=2.5.0').then(m => m.renderEntriesPage),
       '#/report': () => import('./pages/report.js?v=2.5.0').then(m => m.renderReportPage),
       '#/manage': () => import('./pages/manage.js?v=2.5.0').then(m => m.renderManagePage),
