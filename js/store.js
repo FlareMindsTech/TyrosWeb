@@ -1428,6 +1428,73 @@ class StoreClass {
     }
     return null;
   }
+
+  // ==========================================
+  // 8. Employee Productivity & Timeline API
+  // ==========================================
+  async getEmployeeProductivity(filterParams = {}, forceRefresh = false) {
+    const key = `empProductivity:${JSON.stringify(filterParams || {})}`;
+    return this._getOrFetch(key, 20000, async () => {
+      try {
+        const res = await ApiClient.get('/admin/employee-productivity', filterParams);
+        const data = res?.data || res || {};
+        return {
+          dateRange: data.dateRange || {},
+          shopId: data.shopId || null,
+          summary: data.summary || {
+            totalEmployees: 0,
+            activeEmployees: 0,
+            totalFollowUps: 0,
+            totalCompleted: 0,
+            totalRescheduled: 0,
+            totalNoResponse: 0,
+            totalLost: 0,
+            totalEnquiriesCreated: 0
+          },
+          employees: Array.isArray(data.employees) ? data.employees : []
+        };
+      } catch (err) {
+        console.warn('[Store] getEmployeeProductivity error:', err.message);
+        return {
+          dateRange: {},
+          shopId: null,
+          summary: {
+            totalEmployees: 0,
+            activeEmployees: 0,
+            totalFollowUps: 0,
+            totalCompleted: 0,
+            totalRescheduled: 0,
+            totalNoResponse: 0,
+            totalLost: 0,
+            totalEnquiriesCreated: 0
+          },
+          employees: []
+        };
+      }
+    }, forceRefresh);
+  }
+
+  async getEmployeeTimeline(employeeId, filterParams = {}, forceRefresh = false) {
+    const key = `empTimeline:${employeeId}:${JSON.stringify(filterParams || {})}`;
+    return this._getOrFetch(key, 15000, async () => {
+      try {
+        const res = await ApiClient.get(`/admin/employee-productivity/${employeeId}/timeline`, filterParams);
+        const data = res?.data || res || {};
+        return {
+          employee: data.employee || {},
+          dateRange: data.dateRange || {},
+          timeline: Array.isArray(data.timeline) ? data.timeline : []
+        };
+      } catch (err) {
+        console.warn('[Store] getEmployeeTimeline error:', err.message);
+        return {
+          employee: {},
+          dateRange: {},
+          timeline: []
+        };
+      }
+    }, forceRefresh);
+  }
 }
 
 export const Store = new StoreClass();

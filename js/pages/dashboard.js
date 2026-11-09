@@ -135,7 +135,7 @@ export function renderDashboardPage(router) {
   }
 
   // --- Render Dashboard with Live Reconciled Data ---
-  function renderDashboard(data, targetsData) {
+  function renderDashboard(data, targetsData, availableShops = []) {
     const nowTime = UI.formatTime(new Date());
 
     // Reconciled numbers:
@@ -149,12 +149,12 @@ export function renderDashboardPage(router) {
     const notFittedCount = data.notFittedCount ?? 25;
     const noResponseCount = data.noResponseCount ?? 13;
 
-    const shopsList = data.shops || [
+    const shopsList = availableShops.length > 0 ? availableShops : (data.shops || [
       { name: 'Flareminds', pending: 0, id: '79e8a6f2-69ef-4753-a79a-2cf9d085cfdf' },
       { name: 'Tyre Point', pending: 0, id: 'b29e752b-b9e0-4c41-897b-f1dfc931651f' },
       { name: 'bharath', pending: 0, id: '6fd7141e-a2de-483a-ad87-fab9481dd54c' },
       { name: 'pk shop', pending: 0, id: '4c275cab-0cb5-4ede-b942-3afbbc6ec6b8' }
-    ];
+    ]);
 
     contentWrapper.innerHTML = `
       <!-- Pinned Dark Header (Mobile & Tablet) - Defect 1 Fixed: Clean circular buttons, NO orange blob -->
@@ -367,6 +367,9 @@ export function renderDashboardPage(router) {
           </div>
         </div>
       </div>
+
+      <!-- 6. Employee Productivity & Leaderboard Section -->
+      <div id="dash-productivity-root"></div>
     `;
 
     // --- Trigger Count-up Animations ---
@@ -422,6 +425,508 @@ export function renderDashboardPage(router) {
       refreshBtn.classList.remove('spinning');
       Toast.info('Dashboard refreshed.');
     });
+
+    // =========================================================================
+    // 6. EMPLOYEE PRODUCTIVITY & LEADERBOARD CONTROLLER
+    // =========================================================================
+    let empActivePreset = 'today';
+    let empCustomStart = getTodayString();
+    let empCustomEnd = getTodayString();
+    let empSelectedShopId = '';
+
+    function getTodayString() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function getYesterdayString() {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function getThisWeekRange() {
+      const now = new Date();
+      const day = now.getDay();
+      const diffToMonday = (day === 0 ? -6 : 1) - day;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diffToMonday);
+      return {
+        startDate: `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`,
+        endDate: getTodayString()
+      };
+    }
+
+    function getThisMonthRange() {
+      const now = new Date();
+      return {
+        startDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`,
+        endDate: getTodayString()
+      };
+    }
+
+    function getProductivityParams() {
+      const params = {};
+      if (empActivePreset === 'today') {
+        params.date = getTodayString();
+      } else if (empActivePreset === 'yesterday') {
+        params.date = getYesterdayString();
+      } else if (empActivePreset === 'thisWeek') {
+        const w = getThisWeekRange();
+        params.startDate = w.startDate;
+        params.endDate = w.endDate;
+      } else if (empActivePreset === 'thisMonth') {
+        const m = getThisMonthRange();
+        params.startDate = m.startDate;
+        params.endDate = m.endDate;
+      } else if (empActivePreset === 'custom') {
+        params.startDate = empCustomStart || getTodayString();
+        params.endDate = empCustomEnd || getTodayString();
+      }
+      if (empSelectedShopId) {
+        params.shopId = empSelectedShopId;
+      }
+      return params;
+    }
+
+    function openEmployeeActivityDrawer(employeeId, employeeName, employeePhone) {
+      const timelineParams = getProductivityParams();
+      let dateLabel = 'Today';
+      if (empActivePreset === 'yesterday') dateLabel = 'Yesterday';
+      else if (empActivePreset === 'thisWeek') dateLabel = 'This Week';
+      else if (empActivePreset === 'thisMonth') dateLabel = 'This Month';
+      else if (empActivePreset === 'custom') dateLabel = `${timelineParams.startDate || ''} to ${timelineParams.endDate || ''}`;
+
+      Sheet.open({
+        title: employeeName || 'Employee Activity',
+        subtitle: `${employeePhone ? `📞 ${employeePhone} · ` : ''}${dateLabel} Timeline`,
+        content: `
+          <div id="emp-timeline-sheet-body" style="min-height: 180px; display:flex; flex-direction:column; gap:var(--space-3);">
+            <div style="display:flex; justify-content:center; align-items:center; height:140px; gap:10px;">
+              <div class="skeleton" style="height:24px; width:24px; border-radius:50%;"></div>
+              <span style="font-size:13px; color:var(--text-muted);">Loading activity timeline...</span>
+            </div>
+          </div>
+        `,
+        onMount: async (sheetEl) => {
+          const bodyEl = sheetEl.querySelector('#emp-timeline-sheet-body');
+          if (!bodyEl) return;
+
+          try {
+            const data = await Store.getEmployeeTimeline(employeeId, timelineParams);
+            const timeline = data.timeline || [];
+
+            if (timeline.length === 0) {
+              bodyEl.innerHTML = `
+                <div class="empty-state-card" style="padding: 32px var(--space-4); text-align:center;">
+                  <div style="font-size: 32px; margin-bottom: 8px;">📋</div>
+                  <div class="empty-state-title" style="font-size:16px; font-weight:700;">No activity logged</div>
+                  <div class="empty-state-desc" style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+                    No follow-up calls or updates were recorded for ${UI.escape(employeeName || 'this employee')} in this period.
+                  </div>
+                </div>
+              `;
+              return;
+            }
+
+            bodyEl.innerHTML = `
+              <div class="emp-timeline-wrapper">
+                <div class="emp-timeline-summary-bar">
+                  <span><strong>${timeline.length}</strong> activities recorded</span>
+                  <span>${dateLabel}</span>
+                </div>
+
+                <div class="emp-timeline-track">
+                  ${timeline.map(item => {
+                    const d = new Date(item.timestamp || Date.now());
+                    const timeStr = !isNaN(d.getTime())
+                      ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+                      : '';
+                    const dateStr = !isNaN(d.getTime())
+                      ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+                      : '';
+
+                    const actionType = (item.actionType || item.action || item.newStatus || '').toUpperCase();
+                    let badgeClass = 'emp-badge-neutral';
+                    let timelineColor = 'var(--accent)';
+
+                    if (actionType.includes('COMPLETED') || actionType.includes('WON') || actionType.includes('FIT')) {
+                      badgeClass = 'emp-badge-green';
+                      timelineColor = '#16A34A';
+                    } else if (actionType.includes('RESCHEDULED') || actionType.includes('LATER')) {
+                      badgeClass = 'emp-badge-yellow';
+                      timelineColor = '#D97706';
+                    } else if (actionType.includes('NO_RESPONSE') || actionType.includes('UNREACHABLE')) {
+                      badgeClass = 'emp-badge-purple';
+                      timelineColor = '#7C3AED';
+                    } else if (actionType.includes('LOST') || actionType.includes('NOT_FIT')) {
+                      badgeClass = 'emp-badge-red';
+                      timelineColor = '#DC2626';
+                    } else if (actionType.includes('CREATED') || actionType.includes('NEW')) {
+                      badgeClass = 'emp-badge-blue';
+                      timelineColor = '#2563EB';
+                    }
+
+                    const statusTransition = item.previousStatus && item.newStatus
+                      ? `${item.previousStatus} ➔ ${item.newStatus}`
+                      : (item.newStatus || item.actionType || item.action || 'UPDATED');
+
+                    const enq = item.enquiry || {};
+
+                    return `
+                      <div class="emp-timeline-item" style="--timeline-color: ${timelineColor};">
+                        <div class="emp-timeline-node"></div>
+                        <div class="emp-timeline-content">
+                          <div class="emp-timeline-header">
+                            <span class="emp-timeline-time">${dateStr ? `${dateStr}, ` : ''}${timeStr}</span>
+                            <span class="emp-timeline-badge ${badgeClass}">${UI.escape(statusTransition)}</span>
+                          </div>
+
+                          ${(enq.customerName || enq.customerPhone || enq.vehicleReg || enq.vehicleModel || enq.tyreBrand) ? `
+                            <div class="emp-timeline-customer">
+                              <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong style="color:var(--text-primary); font-size:13.5px;">${UI.escape(enq.customerName || 'Customer')}</strong>
+                                ${enq.customerPhone ? `
+                                  <a href="tel:${enq.customerPhone}" style="color:var(--accent); text-decoration:none; font-weight:600; font-size:12px;">
+                                    📞 ${UI.escape(enq.customerPhone)}
+                                  </a>
+                                ` : ''}
+                              </div>
+                              <div style="font-size:12px; color:var(--text-muted); margin-top:3px; display:flex; flex-wrap:wrap; gap:8px;">
+                                ${enq.vehicleReg || enq.vehicleModel ? `<span>🚗 ${UI.escape(enq.vehicleReg || '')} ${enq.vehicleModel ? `(${UI.escape(enq.vehicleModel)})` : ''}</span>` : ''}
+                                ${enq.tyreBrand || enq.tyreSize ? `<span>🛞 ${UI.escape(enq.tyreBrand || '')} ${UI.escape(enq.tyreSize || '')}</span>` : ''}
+                                ${enq.shopName ? `<span>📍 ${UI.escape(enq.shopName)}</span>` : ''}
+                              </div>
+                            </div>
+                          ` : ''}
+
+                          ${item.remarks ? `
+                            <div class="emp-timeline-remarks">
+                              💬 ${UI.escape(item.remarks)}
+                            </div>
+                          ` : ''}
+                        </div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+          } catch (err) {
+            bodyEl.innerHTML = `
+              <div class="empty-state-card" style="padding: 24px; text-align:center;">
+                <div style="font-size: 28px; margin-bottom: 6px;">⚠️</div>
+                <div style="font-size:14px; font-weight:700; color:var(--status-overdue);">Failed to load timeline</div>
+                <div style="font-size:12.5px; color:var(--text-muted); margin-top:4px;">${UI.escape(err.message || 'Network error')}</div>
+              </div>
+            `;
+          }
+        }
+      });
+    }
+
+    async function fetchAndRenderProductivity(forceRefresh = false) {
+      const containerEl = contentWrapper.querySelector('#dash-productivity-root');
+      if (!containerEl) return;
+
+      const params = getProductivityParams();
+
+      containerEl.innerHTML = `
+        <div class="dash-productivity-section">
+          <div class="emp-prod-header-row">
+            <div>
+              <div class="emp-prod-title">📈 Employee Productivity &amp; Performance</div>
+              <div class="emp-prod-subtitle">Follow-ups, conversions &amp; daily activity leaderboard</div>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:var(--space-3); padding-top:var(--space-2);">
+            <div class="skeleton" style="height: 44px; border-radius: var(--radius-lg);"></div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px;">
+              <div class="skeleton" style="height: 70px; border-radius: var(--radius-lg);"></div>
+              <div class="skeleton" style="height: 70px; border-radius: var(--radius-lg);"></div>
+              <div class="skeleton" style="height: 70px; border-radius: var(--radius-lg);"></div>
+              <div class="skeleton" style="height: 70px; border-radius: var(--radius-lg);"></div>
+              <div class="skeleton" style="height: 70px; border-radius: var(--radius-lg);"></div>
+              <div class="skeleton" style="height: 70px; border-radius: var(--radius-lg);"></div>
+            </div>
+            <div class="skeleton" style="height: 160px; border-radius: var(--radius-lg);"></div>
+          </div>
+        </div>
+      `;
+
+      try {
+        const prodData = await Store.getEmployeeProductivity(params, forceRefresh);
+        const summary = prodData.summary || {};
+        const employees = prodData.employees || [];
+
+        containerEl.innerHTML = `
+          <div class="dash-productivity-section">
+            <!-- Header Row -->
+            <div class="emp-prod-header-row">
+              <div>
+                <div class="emp-prod-title">📈 Employee Productivity &amp; Performance</div>
+                <div class="emp-prod-subtitle">Follow-ups, conversions &amp; daily activity leaderboard</div>
+              </div>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="emp-prod-filter-bar">
+              <!-- Preset Pills -->
+              <div class="emp-preset-group">
+                <button class="emp-filter-pill ${empActivePreset === 'today' ? 'active' : ''}" data-preset="today">Today</button>
+                <button class="emp-filter-pill ${empActivePreset === 'yesterday' ? 'active' : ''}" data-preset="yesterday">Yesterday</button>
+                <button class="emp-filter-pill ${empActivePreset === 'thisWeek' ? 'active' : ''}" data-preset="thisWeek">This Week</button>
+                <button class="emp-filter-pill ${empActivePreset === 'thisMonth' ? 'active' : ''}" data-preset="thisMonth">This Month</button>
+                <button class="emp-filter-pill ${empActivePreset === 'custom' ? 'active' : ''}" data-preset="custom">Custom</button>
+              </div>
+
+              <!-- Custom Date Pickers -->
+              <div class="emp-custom-dates-wrap ${empActivePreset === 'custom' ? 'visible' : ''}">
+                <input type="date" id="emp-custom-start" class="emp-date-input" value="${empCustomStart}">
+                <span style="font-size:12px; color:var(--text-muted);">to</span>
+                <input type="date" id="emp-custom-end" class="emp-date-input" value="${empCustomEnd}">
+                <button id="emp-custom-apply-btn" class="emp-filter-pill active" style="padding:4px 10px;">Apply</button>
+              </div>
+
+              <!-- Workshop Dropdown -->
+              <div style="display:flex; align-items:center; gap:6px;">
+                <select id="emp-shop-select" class="emp-shop-select">
+                  <option value="">All Workshops</option>
+                  ${shopsList.map(s => `
+                    <option value="${s.id}" ${empSelectedShopId === String(s.id) ? 'selected' : ''}>
+                      ${UI.escape(s.name)}
+                    </option>
+                  `).join('')}
+                </select>
+              </div>
+
+              <!-- Refresh Button -->
+              <button id="emp-refresh-btn" class="emp-refresh-btn" title="Refresh productivity data">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            <!-- Top KPI Summary Cards -->
+            <div class="emp-prod-kpi-grid">
+              <!-- 1. Total Follow-Ups -->
+              <div class="emp-kpi-card" style="--kpi-color: #475569;">
+                <div class="emp-kpi-label">
+                  <span class="emp-kpi-dot"></span>
+                  <span>Total Calls</span>
+                </div>
+                <div class="emp-kpi-num count-up" data-target="${summary.totalFollowUps || 0}">0</div>
+                <div class="emp-kpi-sub">${summary.activeEmployees || 0} active / ${summary.totalEmployees || 0} staff</div>
+              </div>
+
+              <!-- 2. Completed / Fitted -->
+              <div class="emp-kpi-card" style="--kpi-color: #16A34A;">
+                <div class="emp-kpi-label">
+                  <span class="emp-kpi-dot"></span>
+                  <span>Completed</span>
+                </div>
+                <div class="emp-kpi-num count-up" data-target="${summary.totalCompleted || 0}">0</div>
+                <div class="emp-kpi-sub" style="color:#16A34A; font-weight:600;">Fitted / Won</div>
+              </div>
+
+              <!-- 3. Rescheduled -->
+              <div class="emp-kpi-card" style="--kpi-color: #D97706;">
+                <div class="emp-kpi-label">
+                  <span class="emp-kpi-dot"></span>
+                  <span>Rescheduled</span>
+                </div>
+                <div class="emp-kpi-num count-up" data-target="${summary.totalRescheduled || 0}">0</div>
+                <div class="emp-kpi-sub" style="color:#D97706; font-weight:600;">Call Later</div>
+              </div>
+
+              <!-- 4. No Response -->
+              <div class="emp-kpi-card" style="--kpi-color: #7C3AED;">
+                <div class="emp-kpi-label">
+                  <span class="emp-kpi-dot"></span>
+                  <span>No Response</span>
+                </div>
+                <div class="emp-kpi-num count-up" data-target="${summary.totalNoResponse || 0}">0</div>
+                <div class="emp-kpi-sub" style="color:#7C3AED; font-weight:600;">Unreachable</div>
+              </div>
+
+              <!-- 5. Lost / Not Fitted -->
+              <div class="emp-kpi-card" style="--kpi-color: #DC2626;">
+                <div class="emp-kpi-label">
+                  <span class="emp-kpi-dot"></span>
+                  <span>Lost</span>
+                </div>
+                <div class="emp-kpi-num count-up" data-target="${summary.totalLost || 0}">0</div>
+                <div class="emp-kpi-sub" style="color:#DC2626; font-weight:600;">Not Fitted</div>
+              </div>
+
+              <!-- 6. New Leads Created -->
+              <div class="emp-kpi-card" style="--kpi-color: #2563EB;">
+                <div class="emp-kpi-label">
+                  <span class="emp-kpi-dot"></span>
+                  <span>Leads Created</span>
+                </div>
+                <div class="emp-kpi-num count-up" data-target="${summary.totalEnquiriesCreated || 0}">0</div>
+                <div class="emp-kpi-sub" style="color:#2563EB; font-weight:600;">New Enquiries</div>
+              </div>
+            </div>
+
+            <!-- Employee Performance Table -->
+            <div class="emp-prod-table-wrap">
+              <table class="emp-prod-table">
+                <thead>
+                  <tr>
+                    <th>Employee Name</th>
+                    <th>Workshop</th>
+                    <th class="text-center">Total Calls</th>
+                    <th class="text-center">Completed</th>
+                    <th class="text-center">Rescheduled</th>
+                    <th class="text-center">No Response</th>
+                    <th class="text-center">Lost</th>
+                    <th class="text-center">Leads Created</th>
+                    <th class="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${employees.length === 0 ? `
+                    <tr>
+                      <td colspan="9" style="text-align:center; padding:32px 16px; color:var(--text-muted);">
+                        <div style="font-size:24px; margin-bottom:6px;">📊</div>
+                        <div style="font-weight:600;">No employee records found</div>
+                        <div style="font-size:12px;">Try selecting another date range or workshop.</div>
+                      </td>
+                    </tr>
+                  ` : employees.map(emp => {
+                    const initials = (emp.employeeName || 'Staff')
+                      .split(' ')
+                      .map(p => p[0])
+                      .slice(0, 2)
+                      .join('')
+                      .toUpperCase();
+                    const m = emp.metrics || {};
+                    return `
+                      <tr>
+                        <td>
+                          <div class="emp-user-cell">
+                            <div class="emp-avatar">${initials}</div>
+                            <div class="emp-user-info">
+                              <span class="emp-user-name">${UI.escape(emp.employeeName || 'Employee')}</span>
+                              <span class="emp-user-phone">${UI.escape(emp.employeePhone || 'No phone')}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <span style="font-weight:600; color:var(--text-secondary); font-size:12.5px;">
+                            ${UI.escape(emp.shopName || 'Workshop')}
+                          </span>
+                        </td>
+                        <td class="text-center">
+                          <strong style="font-size:14px; color:var(--text-primary);">${m.totalFollowUps || 0}</strong>
+                        </td>
+                        <td class="text-center">
+                          <span class="emp-metric-badge emp-badge-green">${m.completed || 0}</span>
+                        </td>
+                        <td class="text-center">
+                          <span class="emp-metric-badge emp-badge-yellow">${m.rescheduled || 0}</span>
+                        </td>
+                        <td class="text-center">
+                          <span class="emp-metric-badge emp-badge-purple">${m.noResponse || 0}</span>
+                        </td>
+                        <td class="text-center">
+                          <span class="emp-metric-badge emp-badge-red">${m.lost || 0}</span>
+                        </td>
+                        <td class="text-center">
+                          <span class="emp-metric-badge emp-badge-blue">${m.enquiriesCreated || 0}</span>
+                        </td>
+                        <td class="text-right">
+                          <button class="btn-view-activity" 
+                            data-emp-id="${emp.employeeId}" 
+                            data-emp-name="${UI.escape(emp.employeeName || 'Employee')}"
+                            data-emp-phone="${UI.escape(emp.employeePhone || '')}">
+                            👁️ View Activity
+                          </button>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        // Trigger count-up on KPI numbers
+        containerEl.querySelectorAll('.count-up').forEach(numEl => {
+          const targetVal = parseInt(numEl.dataset.target, 10) || 0;
+          animateValue(numEl, 0, targetVal, 500);
+        });
+
+        // Event Listeners for Filters
+        containerEl.querySelectorAll('.emp-filter-pill[data-preset]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const preset = btn.dataset.preset;
+            empActivePreset = preset;
+            if (preset !== 'custom') {
+              fetchAndRenderProductivity(false);
+            } else {
+              containerEl.querySelector('.emp-custom-dates-wrap')?.classList.add('visible');
+              containerEl.querySelectorAll('.emp-filter-pill[data-preset]').forEach(b => b.classList.remove('active'));
+              btn.classList.add('active');
+            }
+          });
+        });
+
+        containerEl.querySelector('#emp-custom-apply-btn')?.addEventListener('click', () => {
+          const startVal = containerEl.querySelector('#emp-custom-start')?.value;
+          const endVal = containerEl.querySelector('#emp-custom-end')?.value;
+          if (startVal && endVal) {
+            empCustomStart = startVal;
+            empCustomEnd = endVal;
+            fetchAndRenderProductivity(false);
+          } else {
+            Toast.warning('Please select start and end dates.');
+          }
+        });
+
+        containerEl.querySelector('#emp-shop-select')?.addEventListener('change', (e) => {
+          empSelectedShopId = e.target.value;
+          fetchAndRenderProductivity(false);
+        });
+
+        const prodRefreshBtn = containerEl.querySelector('#emp-refresh-btn');
+        prodRefreshBtn?.addEventListener('click', async () => {
+          prodRefreshBtn.classList.add('spinning');
+          await fetchAndRenderProductivity(true);
+          Toast.info('Employee productivity updated.');
+        });
+
+        // Activity Drawer Trigger
+        containerEl.querySelectorAll('.btn-view-activity').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const empId = btn.dataset.empId;
+            const empName = btn.dataset.empName;
+            const empPhone = btn.dataset.empPhone;
+            openEmployeeActivityDrawer(empId, empName, empPhone);
+          });
+        });
+
+      } catch (err) {
+        console.error('[Dashboard] Error rendering employee productivity:', err);
+        containerEl.innerHTML = `
+          <div class="dash-productivity-section">
+            <div style="text-align:center; padding: 32px var(--space-4);">
+              <div style="font-size:32px; margin-bottom:8px;">⚠️</div>
+              <div style="font-weight:700; color:var(--status-overdue); font-size:16px;">Failed to load employee productivity</div>
+              <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">${UI.escape(err.message || 'Error communicating with server')}</div>
+              <button id="emp-retry-btn" class="btn-primary" style="margin: 16px auto 0;">Retry</button>
+            </div>
+          </div>
+        `;
+        containerEl.querySelector('#emp-retry-btn')?.addEventListener('click', () => fetchAndRenderProductivity(true));
+      }
+    }
+
+    // Initial fetch for Employee Productivity
+    fetchAndRenderProductivity(false);
   }
 
   // --- Data Loading Controller ---
@@ -434,14 +939,15 @@ export function renderDashboardPage(router) {
     }
 
     try {
-      const [dashData, targetData] = await Promise.all([
+      const [dashData, targetData, shops] = await Promise.all([
         Store.getAdminDashboard(),
-        Store.getMonthlyTargetData('all')
+        Store.getMonthlyTargetData('all'),
+        Store.getShops().catch(() => [])
       ]);
 
       isLoading = false;
       hasError = false;
-      renderDashboard(dashData || {}, targetData || {});
+      renderDashboard(dashData || {}, targetData || {}, shops || []);
     } catch (err) {
       console.error('[Dashboard] Error loading data:', err);
       hasError = true;
